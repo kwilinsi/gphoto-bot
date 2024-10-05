@@ -1,6 +1,7 @@
 from datetime import datetime
 import logging
 import pytz
+import re
 import traceback
 
 import discord
@@ -49,38 +50,79 @@ def latency(start: datetime, end: datetime = None) -> str:
         return f'{sec:.2f} s'
     else:
         return f'{sec * 1000:.1f} ms'
+    
 
-
-def get_traceback(lines: int,
-                  offset: int = 1,
-                  max_length: str = None) -> str:
+def format_traceback_frame(frame: str) -> str:
     """
-    Get the last few lines of the traceback as a string.
+    Improve the formatting of a traceback frame. This is a helper function for
+    format_traceback().
 
     Args:
-        lines (int): The number of lines to retrieve. If this is 0, an empty
-        string is returned.
-        offset (int): The number of lines to offset in the stacktrace. Should
-        probably be at least 1 to omit this call. Defaults to 1.
-        max_length (str, optional): The maximum number of characters in the
-        stacktrace string. Lines are removed if necessary to make it fit.
-        Defaults to None.
+        frame (str): The frame to format.
 
     Returns:
-        str: The stacktrace as a string.
+        str: The formatted frame.
     """
 
-    tb = traceback.extract_stack()[-(lines + offset):-offset]
-    stack = '\n'.join(traceback.format_list(tb)).strip()
+    frame = re.sub(r'\^{5,}', '', frame)
+    return frame.strip()
 
-    while len(stack) > max_length:
-        if len(tb) == 1:
-            return trunc(stack, max_length)
+
+def format_traceback(error: Exception, lines: int) -> str:
+    """
+    Get a formatted code block string with the last few lines of the traceback
+    that caused an error.
+
+    Args:
+        error (Exception): The error with the associated traceback.
+        lines (int): The number of lines to retrieve.
+
+    Returns:
+        str: The stacktrace as a formatted string.
+    """
+
+    # Format the last lines of the stacktrace
+    tb = error.__traceback__
+    stack = [format_traceback_frame(l)
+             for l in traceback.format_tb(tb, -lines)]
+
+    # Count the number of frames
+    frames = 0
+    while tb:
+        frames += 1
+        tb = tb.tb_next
+
+    # Trim down the stacktrace until it fits in a field
+    while True:
+        merged = '\n\n'.join(stack)
+
+        # Make a header to show the number of omitted frames
+        omitted_frames = frames - len(stack)
+        if omitted_frames == 1:
+            header = "[1 frame]\n\n"
+        elif omitted_frames > 1:
+            header = f"[{omitted_frames} frames]\n\n"
         else:
-            tb = tb[1:]
-            stack = '\n'.join(traceback.format_list(tb)).strip()
+            header = ''
 
-    return stack
+        # If it's too long, shorten it
+        # Note: 9 == len("```\n\n```") in format string
+        if len(merged) + len(header) + 8 > const.EMBED_FIELD_VALUE_LENGTH:
+            # If this is the last frame left, truncate it
+            if len(stack) == 1:
+                merged = trunc(
+                    merged,
+                    const.EMBED_FIELD_VALUE_LENGTH - 8 - len(header)
+                )
+                break
+            else:
+                # Otherwise, just delete the first frame
+                del stack[0]
+        else:
+            break
+
+    # Return the formatted stacktrace
+    return f'```\n{header}{merged}\n```'
 
 
 def error_embed(error: Exception,
@@ -112,24 +154,27 @@ def error_embed(error: Exception,
 
     # Add exception details, if enabled
     if show_details:
+        err_str = str(error) if str(error) else '*[No details given]*'
+
         embed.add_field(
             name=trunc(error.__class__.__name__,
                        const.EMBED_FIELD_NAME_LENGTH),
-            value=trunc(str(error), const.EMBED_FIELD_VALUE_LENGTH)
+            value=trunc(err_str, const.EMBED_FIELD_VALUE_LENGTH),
+            inline=False
         )
 
     # Add traceback, if enabled
     if show_traceback:
-        stack = get_traceback(
-            settings.ERROR_TRACEBACK_LENGTH,
-            2,
-            const.EMBED_FIELD_VALUE_LENGTH - 8
+        stack = format_traceback(
+            error=error,
+            lines=settings.ERROR_TRACEBACK_LENGTH
         )
 
         if stack:
             embed.add_field(
                 name='Traceback',
-                value=f'```\n{stack}\n```'
+                value=stack,
+                inline=False
             )
 
     return embed
@@ -138,10 +183,10 @@ def error_embed(error: Exception,
 async def handle_err(interaction: discord.Interaction,
                      error: Exception,
                      text: str,
+                     log_text: str = None,
                      title: str = 'Error',
                      show_details: bool = True,
-                     show_traceback: bool = False,
-                     deferred: bool = False):
+                     show_traceback: bool = False):
     """
     Nicely handle generic errors, sending some info to the user in an embed and
     logging it.
@@ -151,29 +196,39 @@ async def handle_err(interaction: discord.Interaction,
         error message.
         error (Exception): The error.
         text (str): Text explaining what went wrong.
+        log_text (str): Separate text to use for the log description. If this
+        is None or empty, the same text is used for the Discord error message
+        and log. Defaults to None.
         title (str): The title of the embed. Defaults to 'Error'.
         show_details (bool, optional): Add details. Defaults to True.
         traceback (bool, optional): Add traceback. Defaults to False.
-        deferred (bool, optional): Whether the interaction was deferred.
-        Defaults to False.
     """
 
     # Build an embed to nicely display the error
-    embed = error_embed(error, text, title, show_details, show_traceback)
+    embed = error_embed(
+        error=error,
+        text=text,
+        title=title,
+        show_details=show_details,
+        show_traceback=show_traceback
+    )
 
     # Send the error message
-    if deferred:
+    if 'defer' in interaction.command.extras:
         await interaction.followup.send(embed=embed)
     else:
         await interaction.response.send_message(embed=embed)
 
-    _log.error(f'{text}: {error}')
+    log_text = log_text if log_text else text
+
+    # Log details
+    _log.error(f'{log_text}: {error}')
+    _log.debug(f'Traceback on {error.__class__.__name__}:', exc_info=True)
 
 
 async def handle_gphoto_err(interaction: discord.Interaction,
                             error: GPhoto2Error,
-                            text: str,
-                            deferred: bool = False):
+                            text: str):
     """
     Nicely handle an error from gPhoto2.
 
@@ -182,25 +237,31 @@ async def handle_gphoto_err(interaction: discord.Interaction,
         error message.
         error (GPhoto2Error): The error.
         text (str): Text explaining what went wrong.
-        deferred (bool, optional): Whether the interaction was deferred.
-        Defaults to False.
     """
 
     # Build an embed to nicely display the error
-    embed = error_embed(error, text, 'gPhoto2 Error',
-                        show_details=False, show_traceback=False)
+    embed = error_embed(
+        error,
+        text,
+        'gPhoto2 Error',
+        show_details=False,
+        show_traceback=False
+    )
 
     # Add the error code and message
-    err_str = trunc(error.string, const.EMBED_FIELD_VALUE_LENGTH)
+    err_str = error.string if error.string else '*[No details given]*'
     embed.add_field(
         name=f'Code: {error.code}',
-        value=err_str
+        value=trunc(err_str, const.EMBED_FIELD_VALUE_LENGTH),
+        inline=False
     )
 
     # Send the error message
-    if deferred:
+    if 'defer' in interaction.command.extras:
         await interaction.followup.send(embed=embed)
     else:
         await interaction.response.send_message(embed=embed)
 
+    # Log details
     _log.error(f'{text} (Code {error.code}): {err_str}')
+    _log.debug(f'Traceback on {GPhoto2Error.__name__}:', exc_info=True)
