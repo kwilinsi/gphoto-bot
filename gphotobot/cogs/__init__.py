@@ -1,6 +1,8 @@
-# {friendly name: cog name}
-EXTENSIONS = {
-    'Manager': 'gphotobot.cogs.manager',
-    'Ping': 'gphotobot.cogs.ping',
-    'Camera': 'gphotobot.cogs.camera'
-}
+from enum import Enum
+
+
+class Extensions(Enum):
+    # friendly name = cog name
+    manager = 'gphotobot.cogs.manager'
+    ping = 'gphotobot.cogs.ping'
+    camera = 'gphotobot.cogs.camera'

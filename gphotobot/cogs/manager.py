@@ -10,6 +10,7 @@ from discord.ext import commands
 from gphotobot.bot import GphotoBot
 from gphotobot.utils import utils
 from gphotobot.conf import APP_NAME, settings
+from . import Extensions
 
 _log = logging.getLogger(__name__)
 
@@ -20,6 +21,30 @@ class Manager(commands.GroupCog,
               group_description=f'Manage {APP_NAME}'):
     def __init__(self, bot: GphotoBot):
         self.bot: GphotoBot = bot
+
+    def make_embed(self,
+                   name: str,
+                   description: str,
+                   **kwargs) -> discord.Embed:
+        """
+        Make an embed designed for management messages. A timestamp with the
+        current time is added automatically.
+
+        Args:
+            name (str): The name to put after "Management |" in the title.
+            description (str): The body text.
+
+        Returns:
+            discord.Embed: The embed.
+        """
+
+        return discord.Embed(
+            title=f'Management | {name}',
+            color=settings.MANAGEMENT_EMBED_COLOR,
+            description=description,
+            timestamp=datetime.now(pytz.utc),
+            **kwargs
+        )
 
     @app_commands.command(extras={'defer': True},
                           description='Sync application commands with Discord')
@@ -45,13 +70,59 @@ class Manager(commands.GroupCog,
         msg = await self.bot.sync_app_commands(scope)
 
         # Send success message
-        embed = discord.Embed(
-            title='Management | Sync',
-            color=settings.MANAGEMENT_EMBED_COLOR,
-            description=msg,
-            timestamp=datetime.now(pytz.utc)
+        await interaction.followup.send(embed=self.make_embed('Sync', msg))
+
+    @app_commands.command(extras={'defer': True},
+                          description='Reload a bot extension')
+    @app_commands.describe(extension='The name of the extension to reload')
+    async def reload(self,
+                     interaction: discord.Interaction[commands.Bot],
+                     extension: Extensions):
+
+        # Defer a response
+        await interaction.response.defer(thinking=True)
+
+        # Reload the extension
+        try:
+            await self.bot.reload_extension(extension.value)
+
+            # Return success message
+            await interaction.followup.send(embed=self.make_embed(
+                'Reload',
+                f"Successfully reloaded `{extension.name}` extension."
+            ))
+            return
+
+        except commands.ExtensionFailed as e:
+            text = (f"Failed to reload `{extension.name}` extension. The "
+                    f"`setup()` function encountered an error. Bot reverted "
+                    f"to original state.")
+            error = e.original
+            traceback = True
+        except commands.ExtensionNotFound as e:
+            text = (f"Unexpected error: couldn't find the `{extension.name}` "
+                    f"extension. Bot reverted to original state.")
+            error = e
+            traceback = False
+        except commands.NoEntryPointError as e:
+            text = (f"Failed to reload `{extension.name}` extension: it's "
+                    f"missing a `setup()` function.")
+            error = e
+            traceback = False
+        except commands.ExtensionNotLoaded as e:
+            text = f"Failed to reload `{extension.name}` extension."
+            error = e
+            traceback = False
+
+        # Send an error message
+        await utils.handle_err(
+            interaction=interaction,
+            error=error,
+            text=text,
+            log_text=text[:-1],
+            title='Error Reloading',
+            show_traceback=traceback
         )
-        await interaction.followup.send(embed=embed)
 
 
 async def handle_app_command_error(
