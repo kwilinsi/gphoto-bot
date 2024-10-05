@@ -39,6 +39,7 @@ class GphotoBot(commands.Bot):
         # Load extensions with cogs, sync application commands, and send the
         # startup message.
         await asyncio.gather(
+            self.load_extension('gphotobot.cogs.manager'),
             self.load_extension('gphotobot.cogs.ping'),
             self.load_extension('gphotobot.cogs.camera'),
             self.startup_message(),

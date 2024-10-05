@@ -14,46 +14,8 @@ _log = logging.getLogger(__name__)
 
 
 class Camera(commands.Cog):
-    def __init__(self, bot):
-        self.bot = bot
-
-    async def cog_app_command_error(
-            self,
-            interaction: discord.Interaction[discord.Client],
-            error: AppCommandError) -> None:
-        """
-        Handle errors thrown by slash commands in this cog.
-
-        Args:
-            interaction (discord.Interaction[discord.Client]): The slash
-            command interaction.
-            error (AppCommandError): The error.
-        """
-
-        # Get the slash command
-        command = '/' + interaction.command.name
-
-        try:
-            # Switch to the original error if available
-            if isinstance(error, discord.app_commands.CommandInvokeError):
-                error = error.original
-
-            # Send an error response in Discord, and log the error and stacktrace
-            await utils.handle_err(
-                interaction,
-                error,
-                f"Unexpected error while processing `{command}`.",
-                log_text=f"Error processing '{command}'",
-                show_details=True,
-                show_traceback=True
-            )
-        except:
-            # If there's an error handling the error, we have big problems
-            _log.critical(
-                f"Failed to handle an {error.__class__.__name__} error "
-                f"raised while processing '{command}'",
-                exc_info=True
-            )
+    def __init__(self, bot: commands.Bot):
+        self.bot: commands.Bot = bot
 
     @discord.app_commands.command(description='Show available cameras',
                                   extras={'defer': True})
@@ -108,6 +70,6 @@ class Camera(commands.Cog):
         await interaction.followup.send(embed=embed)
 
 
-async def setup(bot):
+async def setup(bot: commands.Bot):
     await bot.add_cog(Camera(bot))
     _log.debug('Loaded Camera cog')

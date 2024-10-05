@@ -5,6 +5,7 @@ import re
 import traceback
 
 import discord
+from discord.ext import commands
 from gphoto2 import GPhoto2Error
 
 from gphotobot.conf import settings
@@ -38,6 +39,18 @@ def trunc(s: str, n: int, elipsis: str = '…') -> str:
 
 
 def latency(start: datetime, end: datetime = None) -> str:
+    """
+    Calculate latency, and format it nicely as a string.
+
+    Args:
+        start (datetime): The start time.
+        end (datetime, optional): The end time. If None, the current time is
+        used. Defaults to None.
+
+    Returns:
+        str: The latency as a nicely formatted string.
+    """
+
     end = datetime.now(pytz.utc) if end is None \
         else end.replace(tzinfo=pytz.utc)
 
@@ -50,7 +63,7 @@ def latency(start: datetime, end: datetime = None) -> str:
         return f'{sec:.2f} s'
     else:
         return f'{sec * 1000:.1f} ms'
-    
+
 
 def format_traceback_frame(frame: str) -> str:
     """
@@ -129,7 +142,7 @@ def error_embed(error: Exception,
                 text: str,
                 title: str = 'Error',
                 show_details: bool = True,
-                show_traceback: bool = False):
+                show_traceback: bool = False) -> discord.Embed:
     """
     Generate a fancy embed with info about an error.
 
@@ -142,6 +155,9 @@ def error_embed(error: Exception,
         traceback (bool, optional): Whether to include the last few lines of
         the traceback in a field. This can be enabled even when show_details is
         False. Defaults to False.
+
+    Returns:
+        discord.Embed: The embed.
     """
 
     # Build the initial embed
@@ -180,20 +196,20 @@ def error_embed(error: Exception,
     return embed
 
 
-async def handle_err(interaction: discord.Interaction,
+async def handle_err(interaction: discord.Interaction[commands.Bot],
                      error: Exception,
                      text: str,
                      log_text: str = None,
                      title: str = 'Error',
                      show_details: bool = True,
-                     show_traceback: bool = False):
+                     show_traceback: bool = False) -> None:
     """
     Nicely handle generic errors, sending some info to the user in an embed and
     logging it.
 
     Args:
-        interaction (discord.Interaction): The interaction to which to send the
-        error message.
+        interaction (discord.Interaction[commands.Bot]): The interaction to
+        which to send the error message.
         error (Exception): The error.
         text (str): Text explaining what went wrong.
         log_text (str): Separate text to use for the log description. If this
@@ -214,27 +230,23 @@ async def handle_err(interaction: discord.Interaction,
     )
 
     # Send the error message
-    if 'defer' in interaction.command.extras:
-        await interaction.followup.send(embed=embed)
-    else:
-        await interaction.response.send_message(embed=embed)
-
-    log_text = log_text if log_text else text
+    await update_interaction(interaction, embed)
 
     # Log details
+    log_text = log_text if log_text else text if text else '[No details given]'
     _log.error(f'{log_text}: {error}')
     _log.debug(f'Traceback on {error.__class__.__name__}:', exc_info=True)
 
 
-async def handle_gphoto_err(interaction: discord.Interaction,
+async def handle_gphoto_err(interaction: discord.Interaction[commands.Bot],
                             error: GPhoto2Error,
-                            text: str):
+                            text: str) -> None:
     """
     Nicely handle an error from gPhoto2.
 
     Args:
-        interaction (discord.Interaction): The interaction to which to send the
-        error message.
+        interaction (discord.Interaction[commands.Bot]): The interaction to
+        which to send the error message.
         error (GPhoto2Error): The error.
         text (str): Text explaining what went wrong.
     """
@@ -249,19 +261,56 @@ async def handle_gphoto_err(interaction: discord.Interaction,
     )
 
     # Add the error code and message
-    err_str = error.string if error.string else '*[No details given]*'
     embed.add_field(
         name=f'Code: {error.code}',
-        value=trunc(err_str, const.EMBED_FIELD_VALUE_LENGTH),
+        value=trunc(error.string if error.string else '*[No details given]*',
+                    const.EMBED_FIELD_VALUE_LENGTH),
         inline=False
     )
 
-    # Send the error message
-    if 'defer' in interaction.command.extras:
-        await interaction.followup.send(embed=embed)
-    else:
-        await interaction.response.send_message(embed=embed)
+    await update_interaction(interaction, embed)
 
     # Log details
-    _log.error(f'{text} (Code {error.code}): {err_str}')
+    _log.error(f"{text} (Code {error.code}): "
+               f"{error.string if error.string else '[No details given]'}")
     _log.debug(f'Traceback on {GPhoto2Error.__name__}:', exc_info=True)
+
+
+async def update_interaction(interaction: discord.Interaction[commands.Bot],
+                             embed: discord.Embed) -> None:
+    extras = interaction.command.extras
+    is_ephemeral = 'ephemeral' in extras
+
+    # If no response was sent yet (apart from maybe deferring),
+    # then send the error
+    if not interaction.response.is_done():
+        if 'defer' in extras:
+            interaction.followup.send(embed=embed, ephemeral=is_ephemeral)
+        else:
+            interaction.response.send_message(embed=embed,
+                                              ephemeral=is_ephemeral)
+        return
+
+    # Otherwise, edit the original message
+
+    # Attempt to get the original message to preserve the content and
+    # embeds. If that fails, replace it with the error embed
+    try:
+        msg = await interaction.original_response()
+        embeds = msg.embeds
+        if len(embeds) == const.EMBED_FIELD_MAX_COUNT:
+            embeds[-1] = embed
+        else:
+            embeds.append(embed)
+    except KeyboardInterrupt:
+        raise
+    except Exception:
+        embeds = [embed]
+
+    # Edit the original message
+    if is_ephemeral:
+        await interaction.edit_original_response(content=msg.content,
+                                                 embeds=embeds)
+    else:
+        await msg.edit(content=msg.content,
+                       embeds=embeds)
