@@ -1,0 +1,10 @@
+# PyCharm config
+/.idea/
+
+# Virtual environments
+/.venv*/
+
+**/__pycache__/
+
+# Assets
+/assets/

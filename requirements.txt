@@ -1,0 +1,12 @@
+aiohttp
+aiosignal
+attrs
+coloredlogs
+discord.py
+frozenlist
+humanfriendly
+idna
+multidict
+platformdirs
+pytz
+yarl
