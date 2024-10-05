@@ -1,7 +1,11 @@
+import logging
+
 import discord
 from discord.ext import commands
 
 from gphotobot.utils import utils
+
+_log = logging.getLogger(__name__)
 
 
 class Ping(commands.Cog):
@@ -25,3 +29,4 @@ class Ping(commands.Cog):
 
 async def setup(bot):
     await bot.add_cog(Ping(bot))
+    _log.debug('Loaded Ping cog')

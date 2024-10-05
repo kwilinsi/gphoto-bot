@@ -81,3 +81,4 @@ class Camera(commands.Cog):
 
 async def setup(bot):
     await bot.add_cog(Camera(bot))
+    _log.debug('Loaded Camera cog')
