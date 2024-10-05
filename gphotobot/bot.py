@@ -8,12 +8,13 @@ from discord import Message
 from discord.ext import commands
 
 from .conf import settings
+from gphotobot import cogs
 
 _log = logging.getLogger(__name__)
 
 
 class GphotoBot(commands.Bot):
-    def __init__(self, sync: Literal['dev', 'global', None]):
+    def __init__(self, sync_scope: Literal['dev', 'global', None]):
         """
         Initialize the bot.
 
@@ -31,40 +32,53 @@ class GphotoBot(commands.Bot):
                 name='your webcam', type=discord.ActivityType.watching)
         )
 
-        self.sync = sync
+        self.sync_scope = sync_scope
 
     async def setup_hook(self) -> None:
         _log.info(f"Logged on as {self.user} (ID: {self.user.id})")
 
         # Load extensions with cogs, sync application commands, and send the
         # startup message.
+        extensions = [self.load_extension(name)
+                      for name in cogs.EXTENSIONS.values()]
         await asyncio.gather(
-            self.load_extension('gphotobot.cogs.manager'),
-            self.load_extension('gphotobot.cogs.ping'),
-            self.load_extension('gphotobot.cogs.camera'),
+            *extensions,
             self.startup_message(),
-            self.sync_app_commands()
+            self.sync_app_commands(self.sync_scope)
         )
 
-    async def sync_app_commands(self) -> None:
+    async def sync_app_commands(self,
+                                scope: Literal['dev', 'global', None]) -> str:
         """
         Sync application commands, if enabled from command line --sync
         argument at runtime.
+
+        Args:
+            scope (str): Whether to sync globally ('global') or only with the
+            development server ('dev') or not at all (None).
+
+        Returns:
+            str: The log message indicating what was synced (if anything).
         """
 
-        if self.sync == 'dev':
+        if scope == 'dev':
             dev_guild = discord.Object(
                 id=settings.DEVELOPMENT_GUILD_ID
             )
             self.tree.copy_global_to(guild=dev_guild)
             await self.tree.sync(guild=dev_guild)
-            _log.info('Synced application commands with dev guild '
-                      f'(id={dev_guild.id})')
-        elif self.sync == 'global':
+            msg = (f'Synced application commands with dev guild '
+                   f'(id={dev_guild.id})')
+        elif scope == 'global':
             await self.tree.sync()
-            _log.info('Synced global application commands')
+            msg = 'Synced global application commands'
         else:
-            _log.debug('Syncing disabled')
+            msg = 'Syncing disabled'
+            _log.debug(msg)
+            return msg
+
+        _log.info(msg)
+        return msg
 
     async def startup_message(self) -> None:
         """

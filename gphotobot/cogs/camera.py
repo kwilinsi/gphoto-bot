@@ -2,9 +2,9 @@ import logging
 import re
 
 import discord
-from discord.app_commands.errors import AppCommandError
-import gphoto2 as gp
+from discord import app_commands
 from discord.ext import commands
+import gphoto2 as gp
 
 from gphotobot.conf import settings
 from gphotobot.utils import utils, const
@@ -17,9 +17,17 @@ class Camera(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot: commands.Bot = bot
 
-    @discord.app_commands.command(description='Show available cameras',
-                                  extras={'defer': True})
-    async def camera(self, interaction: discord.Interaction):
+    @app_commands.command(description='Show available cameras',
+                          extras={'defer': True})
+    async def camera(self,
+                     interaction: discord.Interaction[commands.Bot]) -> None:
+        """
+        Show a list of available cameras.
+
+        Args:
+            interaction (discord.Interaction[commands.Bot]): The interaction.
+        """
+
         await interaction.response.defer(thinking=True)
 
         # Auto detect available cameras

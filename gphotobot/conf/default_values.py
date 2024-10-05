@@ -71,6 +71,14 @@ DEFAULT_EMBED_COLOR = dc.DefaultConfigEntry(
     'Expected a color hex code'
 )
 
+# The color of embeds related to bot management
+MANAGEMENT_EMBED_COLOR = dc.DefaultConfigEntry(
+    'messages',
+    Color.gold(),
+    dc.to_color,
+    'Expected a color hex code'
+)
+
 # The color of embeds with error messages
 ERROR_EMBED_COLOR = dc.DefaultConfigEntry(
     'messages',
