@@ -1,9 +1,11 @@
+aiohappyeyeballs
 aiohttp
 aiosignal
 attrs
 coloredlogs
 discord.py
 frozenlist
+gphoto2
 humanfriendly
 idna
 multidict
