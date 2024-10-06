@@ -138,7 +138,7 @@ async def handle_app_command_error(
     """
 
     # Get the slash command
-    command = '/' + interaction.command.name
+    command = '/' + interaction.command.qualified_name
 
     try:
         # Switch to the original error if available
