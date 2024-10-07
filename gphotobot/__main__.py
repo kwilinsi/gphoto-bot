@@ -5,6 +5,7 @@ import gphoto2 as gp
 
 from .conf import settings, APP_NAME, logger_conf
 from .bot import GphotoBot
+from . import sql
 
 
 def parse_args():
@@ -26,6 +27,10 @@ def main(args: Namespace):
 
     # Enable gPhoto2 logging
     gp.use_python_logging()
+
+    # Create database tables
+    log.info('Initialize database connection...')
+    sql.initialize()
 
     # Create the bot
     log.info(f'Starting {APP_NAME}...')

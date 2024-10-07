@@ -67,6 +67,75 @@ def latency(start: datetime, end: datetime = None) -> str:
         return f'{sec * 1000:.1f} ms'
 
 
+def format_time(seconds: float) -> str:
+    """
+    Take a number of seconds and format it nicely as a string.
+
+    If less than 1 second: "0.00s"
+    If less than 10 seconds: "0.0s"
+
+    Otherwise, it's separated into years, days, hours, minutes, and seconds.
+    Any unit with a value >0 is included. Examples:
+        - "3h 7m 6s"
+        - "1d 5s"
+        - "7y 71d 10h 2m 55s"
+        - "9d"
+
+    Note that by the time you get to years, this isn't super accurate. It
+    assumes each year is exactly 365 days.
+
+    Args:
+        seconds (float): The number of seconds.
+
+    Returns:
+        str: The formatted time string.
+    """
+
+    if seconds < 1:
+        return f'{seconds:.2f}s'
+    elif seconds < 10:
+        return f'{seconds:.1f}s'
+
+    # Omit decimals after the 10-second mark
+    seconds = int(seconds)
+
+    # Split units
+    minutes, seconds = divmod(seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    days, hours = divmod(hours, 24)
+    years, days = divmod(days, 365)
+
+    time = ''
+    if years > 0:
+        time += f' {years}y'
+    if days > 0:
+        time += f' {days}d'
+    if hours > 0:
+        time += f' {hours}h'
+    if minutes > 0:
+        time += f' {minutes}m'
+    if seconds > 0:
+        time += f' {seconds}s'
+
+    return time[1:]
+
+
+def default_embed(**kwargs) -> discord.Embed:
+    """
+    Generate an embed with the default color and the current timestamp. All
+    parameters are passed to discord.Embed().
+
+    Returns:
+        discord.Embed: The new embed.
+    """
+
+    return discord.Embed(
+        color=settings.DEFAULT_EMBED_COLOR,
+        timestamp=datetime.now(pytz.utc),
+        **kwargs
+    )
+
+
 def app_command_name(interaction: discord.Interaction) -> str:
     """
     Get the fully qualified name of an app command. This is equivalent to
@@ -293,10 +362,10 @@ async def update_interaction(interaction: discord.Interaction[commands.Bot],
     # then send the error
     if not interaction.response.is_done():
         if 'defer' in extras:
-            interaction.followup.send(embed=embed, ephemeral=is_ephemeral)
+            await interaction.followup.send(embed=embed, ephemeral=is_ephemeral)
         else:
-            interaction.response.send_message(embed=embed,
-                                              ephemeral=is_ephemeral)
+            await interaction.response.send_message(embed=embed,
+                                                    ephemeral=is_ephemeral)
         return
 
     # Otherwise, edit the original message

@@ -6,9 +6,16 @@ coloredlogs
 discord.py
 frozenlist
 gphoto2
+greenlet
 humanfriendly
 idna
+mariadb
 multidict
+packaging
 platformdirs
+python-dateutil
 pytz
+six
+SQLAlchemy
+typing_extensions
 yarl

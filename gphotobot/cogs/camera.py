@@ -8,7 +8,6 @@ from discord import app_commands
 from discord.ext import commands
 from gphoto2 import GPhoto2Error
 
-import gphotobot.utils.gphoto
 from gphotobot.bot import GphotoBot
 from gphotobot.conf import APP_NAME, settings
 from gphotobot.utils import const, gphoto, utils
@@ -45,9 +44,8 @@ class Camera(commands.Cog):
             return
 
         # Send the list of cameras
-        embed = discord.Embed(
-            title='Found a camera' if n == 1 else f'Found {n} cameras',
-            color=settings.DEFAULT_EMBED_COLOR
+        embed = utils.default_embed(
+            title='Found a camera' if n == 1 else f'Found {n} cameras'
         )
 
         # Add each camera as a field in the embed

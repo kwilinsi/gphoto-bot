@@ -1,4 +1,6 @@
 import logging
+import os.path
+from pathlib import Path
 from typing import Callable, Optional
 
 from discord import Color
@@ -176,3 +178,24 @@ def to_color(color: Optional[str]) -> Optional[Color]:
             pass
     
     return Color.from_str(color)
+
+
+def to_directory_path(directory: Optional[str]) -> Path:
+    """
+    Take a given directory and convert it to a Path. Ensure that it is (a)
+    absolute, and (b) isn't a file. It doesn't need to exist as a directory
+    yet, though.
+
+    Args:
+        directory (Optional[str]): The directory as a string.
+
+    Returns:
+        Path: The validated Path.
+
+    Raises:
+        AssertionError: If the path is relative or a file.
+    """
+
+    path = Path(directory)
+    assert path.is_absolute() and not path.is_file()
+    return path

@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 
 from discord import Color
 from discord.mentions import default
@@ -23,6 +24,43 @@ LOG_CHANNEL_ID = dc.DefaultConfigEntry(
     cast_func=dc.to_optional_int,
     expected='a Discord snowflake integer, or empty'
 )
+
+################################################################################
+
+# Username for MariaDB database
+DATABASE_USERNAME = dc.DefaultConfigEntry(
+    section='db',
+    has_default=False
+)
+
+# Password for MariaDB database
+DATABASE_PASSWORD = dc.DefaultConfigEntry(
+    section='db',
+    has_default=False
+)
+
+# MariaDB host
+DATABASE_HOST = dc.DefaultConfigEntry(
+    section='db',
+    default='localhost',
+    has_default=False
+)
+
+# MariaDB port number
+DATABASE_PORT = dc.DefaultConfigEntry(
+    section='db',
+    default=3306,
+    cast_func=dc.to_positive_int,
+    expected='a port number'
+)
+
+# MariaDB database name
+DATABASE_NAME = dc.DefaultConfigEntry(
+    section='db',
+    has_default=False
+)
+
+################################################################################
 
 # The minimum log level that goes to the console
 LOG_LEVEL_CONSOLE = dc.DefaultConfigEntry(
@@ -64,6 +102,8 @@ DISCORD_PY_LOG_LEVEL = dc.DefaultConfigEntry(
     expected='DEBUG, INFO, WARN, WARNING, ERROR, or CRITICAL'
 )
 
+################################################################################
+
 # The default color of most embeds with generic info
 DEFAULT_EMBED_COLOR = dc.DefaultConfigEntry(
     section='messages',
@@ -95,4 +135,16 @@ ERROR_TRACEBACK_LENGTH = dc.DefaultConfigEntry(
     default=4,
     cast_func=dc.to_positive_int,
     expected='Expected an integer >=0'
+)
+
+################################################################################
+
+# The default root directory where new timelapses are placed. This is used
+# whenever the user specifies a relative path or uses the default.
+DEFAULT_TIMELAPSE_ROOT_DIRECTORY = dc.DefaultConfigEntry(
+    section='camera',
+    cast_func=dc.to_directory_path,
+    expected="An absolute directory "
+             "(doesn't need to exist, but can't be a file)",
+    has_default=False
 )
