@@ -1,29 +1,31 @@
 from datetime import datetime
 import logging
+from typing import Optional
+
 import pytz
 import re
 import traceback
 
 import discord
+from discord import app_commands
 from discord.ext import commands
-from gphoto2 import GPhoto2Error
 
 from gphotobot.conf import settings
 from . import const
 
-
 _log = logging.getLogger(__name__)
 
 
-def trunc(s: str, n: int, elipsis: str = '…') -> str:
+def trunc(s: str, n: int, ellipsis_str: str = '…') -> Optional[str]:
     """
     Truncate a string to a maximum of n character(s).
 
     Args:
         s (str): The string to truncate. If this is None, it returns None.
         n (int): The maximum number of characters.
-        elipsis (str, optional): The elipsis to put at the end if the string is
-        too long. This is removed from the maximum length. Defaults to '…'.
+        ellipsis_str (str, optional): The ellipsis character to put at the end
+        if the string is too long. This is removed from the maximum length.
+        Defaults to '…'.
 
     Returns:
         str: The truncated string.
@@ -33,7 +35,7 @@ def trunc(s: str, n: int, elipsis: str = '…') -> str:
         return None
 
     if len(s) > n:
-        return s[:n - len(elipsis)] + elipsis
+        return s[:n - len(ellipsis_str)] + ellipsis_str
     else:
         return s
 
@@ -63,6 +65,32 @@ def latency(start: datetime, end: datetime = None) -> str:
         return f'{sec:.2f} s'
     else:
         return f'{sec * 1000:.1f} ms'
+
+
+def app_command_name(interaction: discord.Interaction) -> str:
+    """
+    Get the fully qualified name of an app command. This is equivalent to
+    calling interaction.command.qualified_name, except that slash commands are
+    prepended with a slash.
+
+    Args:
+        interaction (discord.Interaction): The interaction.
+
+    Returns:
+        str: The fully qualified name.
+    """
+
+    command = interaction.command
+    name = command.qualified_name
+
+    if isinstance(command, app_commands.ContextMenu):
+        return name
+    elif isinstance(command, app_commands.Command):
+        return '/' + name
+    else:
+        _log.warning(f"Unknown interaction command type "
+                     f"'{command.__class__.__name__}' for command '{name}'")
+        return name
 
 
 def format_traceback_frame(frame: str) -> str:
@@ -152,21 +180,16 @@ def error_embed(error: Exception,
         title (str): The title of the embed. Defaults to 'Error'.
         show_details (bool, optional): Whether to add a field to the embed that
         gives the exception class name and the error message. Defaults to True.
-        traceback (bool, optional): Whether to include the last few lines of
-        the traceback in a field. This can be enabled even when show_details is
-        False. Defaults to False.
+        show_traceback (bool, optional): Whether to include the last few
+        lines of the traceback in a field. This can be enabled even when
+        show_details is False. Defaults to False.
 
     Returns:
         discord.Embed: The embed.
     """
 
     # Build the initial embed
-    embed = discord.Embed(
-        title=title,
-        description=text,
-        color=settings.ERROR_EMBED_COLOR,
-        timestamp=datetime.now(pytz.utc)
-    )
+    embed = contrived_error_embed(text=text, title=title)
 
     # Add exception details, if enabled
     if show_details:
@@ -196,6 +219,29 @@ def error_embed(error: Exception,
     return embed
 
 
+def contrived_error_embed(text: str,
+                          title: str = 'Error') -> discord.Embed:
+    """
+    Create an embed with a contrived error message: that is, an error that did
+    not originate from an actual exception. This has no exception class name,
+    exception message, or stacktrace.
+
+    Args:
+        text (str): The error message.
+        title (str, optional): The embed title. Defaults to 'Error'.
+
+    Returns:
+        discord.Embed: The embed.
+    """
+
+    return discord.Embed(
+        title=title,
+        description=text,
+        color=settings.ERROR_EMBED_COLOR,
+        timestamp=datetime.now(pytz.utc)
+    )
+
+
 async def handle_err(interaction: discord.Interaction[commands.Bot],
                      error: Exception,
                      text: str,
@@ -217,7 +263,7 @@ async def handle_err(interaction: discord.Interaction[commands.Bot],
         and log. Defaults to None.
         title (str): The title of the embed. Defaults to 'Error'.
         show_details (bool, optional): Add details. Defaults to True.
-        traceback (bool, optional): Add traceback. Defaults to False.
+        show_traceback (bool, optional): Add traceback. Defaults to False.
     """
 
     # Build an embed to nicely display the error
@@ -236,44 +282,6 @@ async def handle_err(interaction: discord.Interaction[commands.Bot],
     log_text = log_text if log_text else text if text else '[No details given]'
     _log.error(f'{log_text}: {error}')
     _log.debug(f'Traceback on {error.__class__.__name__}:', exc_info=True)
-
-
-async def handle_gphoto_err(interaction: discord.Interaction[commands.Bot],
-                            error: GPhoto2Error,
-                            text: str) -> None:
-    """
-    Nicely handle an error from gPhoto2.
-
-    Args:
-        interaction (discord.Interaction[commands.Bot]): The interaction to
-        which to send the error message.
-        error (GPhoto2Error): The error.
-        text (str): Text explaining what went wrong.
-    """
-
-    # Build an embed to nicely display the error
-    embed = error_embed(
-        error,
-        text,
-        'gPhoto2 Error',
-        show_details=False,
-        show_traceback=False
-    )
-
-    # Add the error code and message
-    embed.add_field(
-        name=f'Code: {error.code}',
-        value=trunc(error.string if error.string else '*[No details given]*',
-                    const.EMBED_FIELD_VALUE_LENGTH),
-        inline=False
-    )
-
-    await update_interaction(interaction, embed)
-
-    # Log details
-    _log.error(f"{text} (Code {error.code}): "
-               f"{error.string if error.string else '[No details given]'}")
-    _log.debug(f'Traceback on {GPhoto2Error.__name__}:', exc_info=True)
 
 
 async def update_interaction(interaction: discord.Interaction[commands.Bot],
@@ -306,11 +314,18 @@ async def update_interaction(interaction: discord.Interaction[commands.Bot],
         raise
     except Exception:
         embeds = [embed]
+        msg = None
 
     # Edit the original message
     if is_ephemeral:
-        await interaction.edit_original_response(content=msg.content,
-                                                 embeds=embeds)
+        await interaction.edit_original_response(
+            content=msg.content if msg else None,
+            embeds=embeds)
     else:
-        await msg.edit(content=msg.content,
-                       embeds=embeds)
+        if msg is None:
+            _log.error(f'Cannot update message to include error embed. '
+                       f'Failed to retrieve the original response from '
+                       f'the interaction {interaction}.')
+        else:
+            await msg.edit(content=msg.content if msg else None,
+                           embeds=embeds)

@@ -1,5 +1,7 @@
 import os
+from pathlib import Path
 import sys
+import traceback
 
 from platformdirs import PlatformDirs
 
@@ -11,15 +13,24 @@ APP_AUTHOR = 'gphoto-bot'
 _CONFIGURATION_FILE_NAME = 'config.ini'
 
 _PLATFORM_DIRS = PlatformDirs('gphoto-bot', ensure_exists=True)
-CONFIG_DIR = _PLATFORM_DIRS.user_config_dir
-DATA_DIR = _PLATFORM_DIRS.user_data_dir
+CONFIG_DIR = Path(_PLATFORM_DIRS.user_config_dir)
+DATA_DIR = Path(_PLATFORM_DIRS.user_data_dir)
+TMP_DATA_DIR = DATA_DIR / 'tmp'
 
 # Ensure platform dirs exist
-if not os.path.isdir(CONFIG_DIR):
+if not CONFIG_DIR.is_dir():
     sys.exit("Error: Could not create configuration directory at "
              f"'{CONFIG_DIR}'")
-if not os.path.isdir(DATA_DIR):
+if not DATA_DIR.is_dir():
     sys.exit("Error: Could not create data directory at "
              f"'{DATA_DIR}'")
 
-settings = Config(os.path.join(CONFIG_DIR, _CONFIGURATION_FILE_NAME))
+# Make the 'tmp' directory
+try:
+    TMP_DATA_DIR.mkdir(exist_ok=True)
+except OSError as e:
+    traceback.print_exc()
+    sys.exit(f"Failed to created tmp data directory at '{TMP_DATA_DIR}': {e}")
+
+# Initialize the settings
+settings = Config(CONFIG_DIR / _CONFIGURATION_FILE_NAME)

@@ -1,6 +1,7 @@
 from configparser import ConfigParser
 from collections import defaultdict
 import os
+from pathlib import Path
 import sys
 import traceback
 
@@ -21,8 +22,8 @@ class Config:
     and then caches it.
     """
 
-    def __init__(self, file):
-        self.file = file
+    def __init__(self, file: Path):
+        self.file: Path = file
         self.cache: dict[str, any] = {}
         self.config: ConfigParser | None = None
 
@@ -100,7 +101,7 @@ class Config:
             already-obtained configurations.
         """
 
-        if os.path.isfile(self.file):
+        if self.file.is_file():
             self.config = ConfigParser()
             self.config.read(self.file)
         else:
@@ -121,8 +122,7 @@ class Config:
             ConfigParser: The saved defaulted configuration.
         """
 
-        if os.path.exists(self.file) and \
-                not os.path.isfile(self.file):
+        if self.file.exists() and not self.file.is_file():
             self._log_exit("Invalid configuration file at "
                            f"'{self.file}'. Is it a directory?")
 

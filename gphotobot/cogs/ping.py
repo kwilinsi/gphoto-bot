@@ -39,4 +39,4 @@ class Ping(commands.Cog):
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Ping(bot))
-    _log.debug('Loaded Ping cog')
+    _log.info('Loaded Ping cog')

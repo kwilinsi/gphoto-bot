@@ -1,3 +1,6 @@
+# The maximum number of characters per message
+MESSAGE_MAX_LENGTH = 2000
+
 # These are the maximum lengths of the parts of an embed field
 EMBED_FIELD_NAME_LENGTH = 256
 EMBED_FIELD_VALUE_LENGTH = 1024

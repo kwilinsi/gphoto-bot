@@ -6,3 +6,4 @@ class Extensions(Enum):
     manager = 'gphotobot.cogs.manager'
     ping = 'gphotobot.cogs.ping'
     camera = 'gphotobot.cogs.camera'
+    gphoto_utils = 'gphotobot.utils.gphoto'

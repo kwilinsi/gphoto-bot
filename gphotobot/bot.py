@@ -41,6 +41,8 @@ class GphotoBot(commands.Bot):
         # startup message.
         extensions = [self.load_extension(ext.value)
                       for ext in cogs.Extensions]
+
+        # noinspection PyTypeChecker
         await asyncio.gather(
             *extensions,
             self.startup_message(),

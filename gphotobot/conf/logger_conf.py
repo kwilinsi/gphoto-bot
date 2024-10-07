@@ -1,6 +1,7 @@
 import coloredlogs
 import logging.handlers
 import os
+from pathlib import Path
 
 from gphotobot.conf import settings, DATA_DIR, APP_NAME
 
@@ -10,12 +11,12 @@ def configure():
     root = logging.getLogger()
 
     # Create logs directory if it doesn't exist
-    log_dir = os.path.join(DATA_DIR, 'logs')
-    os.makedirs(log_dir, exist_ok=True)
+    log_dir: Path = DATA_DIR / 'logs'
+    log_dir.mkdir(exist_ok=True)
 
     # Add file handler to root
     file = logging.handlers.RotatingFileHandler(
-        os.path.join(log_dir, APP_NAME + '.log'),
+        log_dir / (APP_NAME + '.log'),
         maxBytes=settings.LOG_MAX_SIZE * 1024,
         backupCount=settings.LOG_BACKUP_COUNT,
         encoding='utf-8'

@@ -22,8 +22,8 @@ class Manager(commands.GroupCog,
     def __init__(self, bot: GphotoBot):
         self.bot: GphotoBot = bot
 
-    def make_embed(self,
-                   name: str,
+    @staticmethod
+    def make_embed(name: str,
                    description: str,
                    **kwargs) -> discord.Embed:
         """
@@ -49,7 +49,7 @@ class Manager(commands.GroupCog,
     @app_commands.command(extras={'defer': True},
                           description='Sync application commands with Discord')
     @app_commands.describe(scope='Whether to sync command globally or '
-                           'only with the dev guild')
+                                 'only with the dev guild')
     async def sync(self,
                    interaction: discord.Interaction[commands.Bot],
                    scope: Literal['global', 'dev']):
@@ -137,8 +137,8 @@ async def handle_app_command_error(
         error (app_commands.AppCommandError): The error.
     """
 
-    # Get the slash command
-    command = '/' + interaction.command.qualified_name
+    # Get the command name
+    command = utils.app_command_name(interaction)
 
     try:
         # Switch to the original error if available
@@ -154,6 +154,8 @@ async def handle_app_command_error(
             show_details=True,
             show_traceback=True
         )
+    except KeyboardInterrupt:
+        raise
     except:
         # If there's an error handling the error, we have big problems
         _log.critical(
@@ -173,7 +175,7 @@ async def setup(bot: GphotoBot):
     """
 
     await bot.add_cog(Manager(bot))
-    _log.debug('Loaded Manager cog')
+    _log.info('Loaded Manager cog')
 
     bot.old_tree_error = bot.tree.on_error
     bot.tree.on_error = handle_app_command_error
@@ -187,4 +189,5 @@ async def teardown(bot: GphotoBot):
         bot (GphotoBot): The bot.
     """
 
+    _log.info('Unloaded Manager cog')
     bot.tree.on_error = bot.old_tree_error
