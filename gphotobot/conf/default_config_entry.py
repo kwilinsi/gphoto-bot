@@ -7,7 +7,7 @@ from discord import Color
 class DefaultConfigEntry:
     def __init__(self,
                  section: str,
-                 value: any = None,
+                 default: any = None,
                  cast_func: Callable[[str], any] | None = None,
                  expected: str | None = None,
                  has_default: bool = True):
@@ -15,7 +15,7 @@ class DefaultConfigEntry:
         Args:
             section (str): The name of the section in the config file
             in which this option is stored.
-            value: The default value.
+            default: The default value.
             cast_func: Function to cast a string value to the
             appropriate data type.
             expected: If casting fails, this string is included in
@@ -25,13 +25,13 @@ class DefaultConfigEntry:
         """
 
         self.section = section
-        self.value = value
+        self.value = default
         self.cast_func = cast_func
         self.expected = expected
         self.has_default = has_default
 
         # The value as a string for saving to the config file
-        self.value_str = self.to_str(value)
+        self.value_str = self.to_str(default)
 
     def cast(self,
              string: str,
