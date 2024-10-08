@@ -38,7 +38,9 @@ async def initialize() -> None:
     )
 
     _log.debug("Creating database engine...")
-    engine = create_async_engine(db_url)
+    # pool_pre_ping=True to prevent losing connection to database at very
+    # slight performance hit
+    engine = create_async_engine(db_url, pool_pre_ping=True)
 
     _log.debug("Creating session maker...")
     async_session_maker = async_sessionmaker(bind=engine)
