@@ -1,10 +1,12 @@
 from datetime import datetime
 from typing import Optional
 
+from select import select
 from sqlalchemy import (BigInteger, Boolean, Column, DateTime,
-                        Float, Integer, String)
+                        Float, Integer, select, String, ScalarResult)
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import func
-from sqlalchemy.orm import Session, Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base
 
@@ -39,7 +41,7 @@ class Timelapses(Base):
     is_finished: Mapped[bool] = mapped_column(Boolean(), default=False)
 
 
-def get_all_active(session) -> list[Timelapses]:
+async def get_all_active(session: AsyncSession) -> list[Timelapses]:
     """
     Get a list of all the timelapses where is_finished is False.
 
@@ -50,12 +52,12 @@ def get_all_active(session) -> list[Timelapses]:
         list[Timelapses]: The list of all active timelapses.
     """
 
-    return (session.query(Timelapses)
-            .filter(Timelapses.is_finished == False)
-            .all())
+    stmt = select(Timelapses).where(Timelapses.is_finished == False)
+    result = await session.scalars(stmt)
+    return [tl for tl in result]
 
 
-def generate_default_name(session: Session) -> str:
+async def generate_default_name(session: AsyncSession) -> str:
     """
     Identify all timelapses that are using the default name (which is just the
     date) and are named for TODAY.
@@ -79,13 +81,12 @@ def generate_default_name(session: Session) -> str:
 
     # Get all timelapses named for today
     default_name = datetime.now().strftime(DEFAULT_NAME_FORMAT)
-    result = (session.query(Timelapses)
-              .filter(Timelapses.name.like(f'{default_name}%'))
-              .all())
+    stmt = select(Timelapses).where(Timelapses.name.like(f'{default_name}%'))
+    result = await session.scalars(stmt)
 
     # Find the current highest disambiguating id
     max_int = 0
-    for tl in result:
+    for tl in result.all():
         match = re.match(r'\d{4}-\d{2}-\d{2}_(\d+)', tl.name)
         if match:
             i = int(match.group(1))
@@ -97,7 +98,7 @@ def generate_default_name(session: Session) -> str:
         return f'{default_name}_{max_int + 1}'
 
 
-def is_name_active(session: Session, name: str) -> bool:
+async def is_name_active(session: AsyncSession, name: str) -> bool:
     """
     Check whether the given name corresponds to an active timelapse (i.e. one
     that hasn't finished yet).
@@ -110,6 +111,6 @@ def is_name_active(session: Session, name: str) -> bool:
         bool: Whether the given name is active.
     """
 
-    return len(session.query(Timelapses)
-               .filter(Timelapses.name == name)
-               .all()) > 0
+    stmt = select(Timelapses).where(Timelapses.name == name)
+    result = await session.scalars(stmt)
+    return len(result.all()) > 0

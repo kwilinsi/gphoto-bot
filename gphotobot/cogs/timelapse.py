@@ -10,11 +10,11 @@ from discord import app_commands, ui, Asset
 from discord.ext import commands
 from gphoto2 import GPhoto2Error
 from sqlalchemy import exc
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from gphotobot.bot import GphotoBot
 from gphotobot.conf import APP_NAME, settings
-from gphotobot.sql import session_maker
+from gphotobot.sql import async_session_maker
 from gphotobot.sql.models import timelapses
 from gphotobot.utils import const, gphoto, utils
 from gphotobot.utils.validation_error import ValidationError
@@ -84,9 +84,9 @@ class Timelapse(commands.Cog):
         # TODO change this to keep track of the default name for the day so I
         #  don't have to query the database, which could time out
 
-        with session_maker() as session:  # read-only session
+        async with async_session_maker() as session:  # read-only session
             # Generate default info
-            name: str = timelapses.generate_default_name(session)
+            name: str = await timelapses.generate_default_name(session)
             directory: Path = settings.DEFAULT_TIMELAPSE_ROOT_DIRECTORY / name
 
             # Create a modal
@@ -113,11 +113,9 @@ class Timelapse(commands.Cog):
 
         # Query active timelapses from database
         try:
-            with session_maker() as session:  # read-only session
+            async with async_session_maker() as session:  # read-only session
                 active_timelapses: list[timelapses.Timelapses] = \
-                    timelapses.get_all_active(session)
-                print(f'active_timelapse type: {type(active_timelapses)}')
-                print(f'active_timelapse[0] type: {type(active_timelapses[0])}')
+                    await timelapses.get_all_active(session)
         except exc.SQLAlchemyError as error:
             await utils.handle_err(
                 interaction=interaction,
@@ -241,7 +239,7 @@ class TimelapseCreator(ui.Modal, title='Create a Timelapse'):
         max_length=100
     )
 
-    def validate_input(self, session: Session) -> \
+    async def validate_input(self, session: AsyncSession) -> \
             tuple[str,
             str,
             Optional[datetime | Literal['now']],
@@ -252,7 +250,7 @@ class TimelapseCreator(ui.Modal, title='Create a Timelapse'):
         Validate all the arguments in the modal.
 
         Args:
-            session: The database session.
+            session (AsyncSession): The database session.
 
         Returns:
             A tuple with each validated argument: the name, directory, start
@@ -265,7 +263,7 @@ class TimelapseCreator(ui.Modal, title='Create a Timelapse'):
 
         # Validate the name
         name = self.name.value.strip()
-        if timelapses.is_name_active(session, name):
+        if await timelapses.is_name_active(session, name):
             raise ValidationError(
                 'name',
                 f'That name is already in use by an active '
@@ -346,11 +344,12 @@ class TimelapseCreator(ui.Modal, title='Create a Timelapse'):
 
         await interaction.response.defer(thinking=True)
 
-        with session_maker() as session, session.begin():
+        # Writable session
+        async with async_session_maker() as session, session.begin():
             # Validate user input
             try:
                 name, directory, start_time, end_time, \
-                    total_frames, interval = self.validate_input(session)
+                    total_frames, interval = await self.validate_input(session)
             except ValidationError as e:
                 await self.invalid_input(interaction, e.message, e.attribute)
                 return

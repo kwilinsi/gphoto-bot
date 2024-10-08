@@ -1,6 +1,7 @@
 from argparse import ArgumentParser, Namespace
 import logging
 
+import asyncio
 import gphoto2 as gp
 
 from .conf import settings, APP_NAME, logger_conf
@@ -20,7 +21,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def main(args: Namespace):
+async def main(args: Namespace):
     # Configure the logger
     logger_conf.configure()
     log = logging.getLogger(__name__)
@@ -30,17 +31,17 @@ def main(args: Namespace):
 
     # Create database tables
     log.info('Initialize database connection...')
-    sql.initialize()
+    await sql.initialize()
 
     # Create the bot
     log.info(f'Starting {APP_NAME}...')
-    log.debug(f'Initializing client...')
+    log.debug(f'Initializing bot...')
     bot = GphotoBot(args.sync)
 
     # Start the bot
     log.debug(f'Starting {bot.__class__.__name__}...')
-    bot.run(settings.DISCORD_API_TOKEN, log_handler=None)
+    await bot.start(settings.DISCORD_API_TOKEN)
 
 
 if __name__ == '__main__':
-    main(parse_args())
+    asyncio.run(main(parse_args()))

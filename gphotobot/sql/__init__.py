@@ -3,6 +3,8 @@ from sys import modules
 
 import sqlalchemy
 from sqlalchemy import create_engine
+from sqlalchemy.ext.asyncio import (AsyncEngine, AsyncSession,
+                                    async_sessionmaker, create_async_engine)
 from sqlalchemy.engine import URL
 from sqlalchemy.orm import sessionmaker
 
@@ -13,21 +15,21 @@ from .models.timelapses import Timelapses
 _log = logging.getLogger(__name__)
 
 # noinspection PyTypeChecker
-engine: sqlalchemy.Engine = None
+engine: AsyncEngine = None
 
 # noinspection PyTypeChecker
-session_maker: sessionmaker = None
+async_session_maker: async_sessionmaker[AsyncSession] = None
 
 
-def initialize() -> None:
+async def initialize() -> None:
     """
     Initialize the database connection.
     """
 
-    global engine, session_maker
+    global engine, async_session_maker
 
     db_url = URL.create(
-        'mariadb+mariadbconnector',
+        'mariadb+asyncmy',
         username=settings.DATABASE_USERNAME,
         password=settings.DATABASE_PASSWORD,
         host=settings.DATABASE_HOST,
@@ -35,11 +37,14 @@ def initialize() -> None:
         database=settings.DATABASE_NAME
     )
 
-    _log.debug("Creating database engine")
-    engine = create_engine(db_url)
-    _log.debug("Creating session maker")
-    session_maker = sessionmaker(bind=engine)
-    _log.debug("Creating tables")
-    Base.metadata.create_all(engine)
+    _log.debug("Creating database engine...")
+    engine = create_async_engine(db_url)
+
+    _log.debug("Creating session maker...")
+    async_session_maker = async_sessionmaker(bind=engine)
+
+    _log.debug("Creating tables...")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
 
     _log.info("Initialized database")

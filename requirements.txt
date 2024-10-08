@@ -1,6 +1,7 @@
 aiohappyeyeballs
 aiohttp
 aiosignal
+asyncmy
 attrs
 coloredlogs
 discord.py
@@ -9,9 +10,7 @@ gphoto2
 greenlet
 humanfriendly
 idna
-mariadb
 multidict
-packaging
 platformdirs
 python-dateutil
 pytz
