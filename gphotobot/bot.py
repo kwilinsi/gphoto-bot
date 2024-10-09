@@ -70,7 +70,7 @@ class GphotoBot(commands.Bot):
             self.tree.copy_global_to(guild=dev_guild)
             await self.tree.sync(guild=dev_guild)
             msg = (f'Synced application commands with dev guild '
-                   f'(id={dev_guild.id})')
+                   f'(`id={dev_guild.id}`)')
         elif scope == 'global':
             await self.tree.sync()
             msg = 'Synced global application commands'

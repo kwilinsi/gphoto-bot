@@ -136,18 +136,24 @@ def default_embed(**kwargs) -> discord.Embed:
     )
 
 
-def app_command_name(interaction: discord.Interaction) -> str:
+def app_command_name(interaction: Optional[discord.Interaction]) -> str:
     """
     Get the fully qualified name of an app command. This is equivalent to
     calling interaction.command.qualified_name, except that slash commands are
     prepended with a slash.
 
+    If the interation is None or its associated command is None, this returns
+    "[Unknown Command]".
+
     Args:
-        interaction (discord.Interaction): The interaction.
+        interaction (Optional[discord.Interaction]): The interaction.
 
     Returns:
         str: The fully qualified name.
     """
+
+    if interaction is None or interaction.command is None:
+        return "[Unknown Command]"
 
     command = interaction.command
     name = command.qualified_name
@@ -352,9 +358,16 @@ async def handle_err(interaction: discord.Interaction[commands.Bot],
     _log.error(f'{log_text}: {error}')
     _log.debug(f'Traceback on {error.__class__.__name__}:', exc_info=True)
 
-
 async def update_interaction(interaction: discord.Interaction[commands.Bot],
                              embed: discord.Embed) -> None:
+    # If the interaction command in None, the command is probably
+    # unrecognized (due to sync not updating yet). We'll just respond normally,
+    # as this is likely the first response
+    if interaction.command is None:
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
+
+    # Use extras to determine whether it's deferred and/or ephemeral
     extras = interaction.command.extras
     is_ephemeral = 'ephemeral' in extras
 
