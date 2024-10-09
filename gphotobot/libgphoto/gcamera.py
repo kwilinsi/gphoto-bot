@@ -210,6 +210,9 @@ class GCamera:
         Get the serial number. If it's not set, determine it by retrieving the
         camera summary.
 
+        Use get_serial_number_short() to get a version without leading zeros,
+        if applicable.
+
         Returns:
             The serial number.
         """
@@ -246,6 +249,32 @@ class GCamera:
         # Can't find the serial number
         self.serial_number = ""
         return ""
+
+    async def get_serial_number_short(self) -> Optional[str]:
+        """
+        If the serial number is an integer, it might have a bunch of leading
+        zeros. In that case, remove said zeros from the short version.
+        Otherwise, this is the same as the regular get_serial_number().
+
+        Returns:
+            Optional[str]: The serial number, shortened if applicable.
+        """
+
+        serial = await self.get_serial_number()
+
+        # If the serial number is an integer with leading zeros, trim them
+        if serial is not None and serial.startswith('0'):
+            try:
+                int(serial)
+                serial = serial.lstrip('0')
+
+                # Just in case it's like binary or hex for some reason
+                if serial.startswith(('x', 'b', 'o')):
+                    serial = '0' + serial
+            except ValueError:
+                pass
+
+        return serial
 
     def get_rotate_preview(self) -> Rotation:
         """
@@ -353,6 +382,21 @@ class GCamera:
 
         return bus, device
 
+    def get_usb_bus_device_str(self) -> Optional[str]:
+        """
+        Get a string with the USB bus and device number separated by a comma.
+        If either the bus or device number is unknown, this returns None.
+
+        Returns:
+            Optional[str]: A string with the USB port info.
+        """
+
+        bus, device = self.get_usb_bus_device()
+        if not bus or not device:
+            return None
+
+        return f'{bus:03d},{device:03d}'
+
     def trunc_name(
             self,
             max_len: Optional[int] = const.EMBED_FIELD_NAME_LENGTH
@@ -384,16 +428,9 @@ class GCamera:
         """
 
         # Get the serial number
-        serial = await self.get_serial_number()
+        serial = await self.get_serial_number_short()
         if not serial:
             serial = '[Unknown]'
-        elif serial.startswith('0'):
-            # If the serial number is an integer with leading zeros, trim them
-            try:
-                int(serial)
-                serial = serial.lstrip('0')
-            except ValueError:
-                pass
 
         # Get the rotation as a nicely formatted string
         rotation = str(self.get_rotate_preview())

@@ -7,3 +7,6 @@ EMBED_FIELD_VALUE_LENGTH = 1024
 
 # The maximum number of embeds
 EMBED_FIELD_MAX_COUNT = 25
+
+# Maximum characters in the label of a selection menu
+SELECT_MENU_LABEL_LENGTH = 100

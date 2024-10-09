@@ -312,6 +312,20 @@ async def all_cameras(force_reload: bool = False) -> list[GCamera]:
     return _CAMERAS.copy()
 
 
+async def get_camera(name: str) -> list[GCamera]:
+    """
+    Get a camera by its name.
+
+    Args:
+        name: The name of the camera.
+
+    Returns:
+        list[GCamera]: All connected cameras that match that name.
+    """
+
+    return [c for c in await all_cameras() if c.name == name]
+
+
 async def get_default_camera() -> GCamera:
     """
     Get the default (first cached) camera.
