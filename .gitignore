@@ -8,3 +8,6 @@
 
 # Assets
 /assets/
+
+# Tests
+/test*/
