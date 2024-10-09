@@ -13,3 +13,7 @@ EMBED_FIELD_MAX_COUNT = 25
 
 # Maximum characters in the label of a selection menu
 SELECT_MENU_LABEL_LENGTH = 100
+
+# Logo for the GitHub URL, which I could only find easily on Wikimedia...
+# GitHub's page only has download options
+GITHUB_LOGO_URL = 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c2/GitHub_Invertocat_Logo.svg/768px-GitHub_Invertocat_Logo.svg.png'

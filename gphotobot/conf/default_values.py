@@ -173,3 +173,10 @@ GPHOTO_RETRY_DELAY = dc.DefaultConfigEntry(
     cast_func=partial(dc.to_float, min_value=0),
     expected='Expected a positive number or 0'
 )
+
+################################################################################
+
+SOURCE_CODE_LINK = dc.DefaultConfigEntry(
+    section='miscellaneous',
+    default='https://github.com/kwilinsi/gphoto-bot',
+)

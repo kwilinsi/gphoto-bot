@@ -145,6 +145,21 @@ class Manager(commands.GroupCog,
             content=f'## `lsusb`\n```\n{output}\n```'
         )
 
+    @app_commands.command(description='Get a link to the bot source code')
+    async def github(self, interaction: discord.Interaction[commands.Bot]):
+        """
+        Send a link to the source code on GitHub.
+
+        Args:
+            interaction: The interaction.
+        """
+        embed = utils.default_embed(
+            title='Source Code',
+            description=f'[View source on GitHub]({settings.SOURCE_CODE_LINK})'
+        )
+        embed.set_thumbnail(url=const.GITHUB_LOGO_URL)
+        await interaction.response.send_message(embed=embed)
+
 
 async def handle_app_command_error(
         interaction: discord.Interaction[commands.Bot],
