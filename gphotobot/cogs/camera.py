@@ -1,6 +1,6 @@
+import asyncio
 from datetime import datetime
 import logging
-import re
 from typing import Optional
 
 import discord
@@ -10,7 +10,8 @@ from gphoto2 import GPhoto2Error
 
 from gphotobot.bot import GphotoBot
 from gphotobot.conf import APP_NAME, settings
-from gphotobot.utils import const, gphoto, utils
+from gphotobot.utils import const, utils
+from gphotobot.libgphoto import GCamera, gmanager, gutils, NoCameraFound
 
 _log = logging.getLogger(__name__)
 
@@ -33,23 +34,24 @@ class Camera(commands.Cog):
         await interaction.response.defer(thinking=True)
 
         try:
-            n, cameras = gphoto.list_cameras()
-        except gphoto.NoCameraFound:
-            await gphoto.handle_no_camera_error(interaction)
+            camera_list: list[GCamera] = await gmanager.all_cameras()
+        except NoCameraFound:
+            await gutils.handle_no_camera_error(interaction)
             return
         except GPhoto2Error as e:
-            await gphoto.handle_gphoto_error(
-                interaction, e.__cause__, 'Failed to auto detect cameras'
+            await gutils.handle_gphoto_error(
+                interaction, e, 'Failed to auto detect cameras'
             )
             return
 
         # Send the list of cameras
-        embed = utils.default_embed(
+        n = len(camera_list)
+        embed: discord.Embed = utils.default_embed(
             title='Found a camera' if n == 1 else f'Found {n} cameras'
         )
 
         # Add each camera as a field in the embed
-        for index, camera in enumerate(cameras):
+        for index, camera in enumerate(camera_list):
             if index == const.EMBED_FIELD_MAX_COUNT - 1 and \
                     n > const.EMBED_FIELD_MAX_COUNT:
                 embed.add_field(
@@ -87,9 +89,9 @@ class Photo(commands.GroupCog,
                 'Specifying a camera is not yet supported. Please omit the '
                 'camera to use the default.'
             )
-            await interaction.response.send_message(embed=embed)
             _log.info("Attempted to run '/photo preview' with custom camera. "
                       "Not yet supported.")
+            await interaction.response.send_message(embed=embed)
             return
 
         # Defer a response
@@ -97,12 +99,13 @@ class Photo(commands.GroupCog,
 
         # Take a photo
         try:
-            camera, path = gphoto.preview()
-        except gphoto.NoCameraFound:
-            await gphoto.handle_no_camera_error(interaction)
+            gcamera = await gmanager.get_default_camera()
+            path = await gcamera.preview_photo()
+        except NoCameraFound:
+            await gutils.handle_no_camera_error(interaction)
             return
         except GPhoto2Error as e:
-            await gphoto.handle_gphoto_error(interaction, e,
+            await gutils.handle_gphoto_error(interaction, e,
                                              'Failed to capture preview')
             return
 
@@ -123,11 +126,11 @@ class Photo(commands.GroupCog,
 
         # Delete the preview
         try:
-            path.unlink()
+            await asyncio.to_thread(path.unlink)
             _log.debug(f'Deleted preview photo: {path}')
         except OSError as e:
             _log.warning(f"Attempted to delete preview photo, but it didn't "
-                         f"exist for some reason: '{path}' {e}")
+                         f"exist for some reason: path='{path}', {e}")
 
 
 async def setup(bot: GphotoBot):

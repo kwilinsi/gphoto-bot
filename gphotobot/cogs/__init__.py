@@ -7,4 +7,3 @@ class Extensions(Enum):
     ping = 'gphotobot.cogs.ping'
     camera = 'gphotobot.cogs.camera'
     timelapse = 'gphotobot.cogs.timelapse'
-    gphoto_utils = 'gphotobot.utils.gphoto'

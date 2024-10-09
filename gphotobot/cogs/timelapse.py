@@ -6,17 +6,16 @@ import re
 from typing import Literal, Optional
 
 import discord
-from discord import app_commands, ui, Asset
+from discord import app_commands, ui
 from discord.ext import commands
-from gphoto2 import GPhoto2Error
 from sqlalchemy import exc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gphotobot.bot import GphotoBot
-from gphotobot.conf import APP_NAME, settings
+from gphotobot.conf import settings
 from gphotobot.sql import async_session_maker
 from gphotobot.sql.models import timelapses
-from gphotobot.utils import const, gphoto, utils
+from gphotobot.utils import const, utils
 from gphotobot.utils.validation_error import ValidationError
 
 _log = logging.getLogger(__name__)

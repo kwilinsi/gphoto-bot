@@ -40,7 +40,8 @@ async def main(args: Namespace):
 
     # Start the bot
     log.debug(f'Starting {bot.__class__.__name__}...')
-    await bot.start(settings.DISCORD_API_TOKEN)
+    async with bot:
+        await bot.start(settings.DISCORD_API_TOKEN)
 
 
 if __name__ == '__main__':

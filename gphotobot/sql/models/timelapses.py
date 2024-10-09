@@ -2,8 +2,7 @@ from datetime import datetime
 from typing import Optional
 
 from select import select
-from sqlalchemy import (BigInteger, Boolean, Column, DateTime,
-                        Float, Integer, select, String, ScalarResult)
+from sqlalchemy import BigInteger, Boolean, DateTime, Float, select, String
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import func
 from sqlalchemy.orm import Mapped, mapped_column
