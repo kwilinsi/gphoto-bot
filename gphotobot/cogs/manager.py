@@ -1,6 +1,7 @@
 from datetime import datetime
 import logging
 import pytz
+import subprocess
 from typing import Literal
 
 import discord
@@ -8,7 +9,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from gphotobot.bot import GphotoBot
-from gphotobot.utils import utils
+from gphotobot.utils import const, utils
 from gphotobot.conf import APP_NAME, settings
 from . import Extensions
 
@@ -122,6 +123,26 @@ class Manager(commands.GroupCog,
             log_text=text[:-1],
             title='Error Reloading',
             show_traceback=traceback
+        )
+
+    @app_commands.command(description='Show the output of the `lsusb` command')
+    async def lsusb(self, interaction: discord.Interaction[commands.Bot]):
+        """
+        Run the lsusb terminal command, and send the output in a code block.
+
+        Args:
+            interaction (discord.Interaction[commands.Bot]): The interaction.
+        """
+
+        output = subprocess.run(
+            ['lsusb'], capture_output=True, text=True
+        ).stdout
+
+        # 19 = length of the header and markdown characters
+        output = utils.trunc(output, const.MESSAGE_MAX_LENGTH - 19)
+
+        await interaction.response.send_message(
+            content=f'## `lsusb`\n```\n{output}\n```'
         )
 
 
