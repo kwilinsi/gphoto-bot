@@ -4,8 +4,9 @@ import logging
 import asyncio
 import gphoto2 as gp
 
-from .conf import settings, APP_NAME, logger_conf
 from .bot import GphotoBot
+from .conf import settings, APP_NAME, logger_conf
+from .libgphoto import gmanager
 from . import sql
 
 
@@ -33,9 +34,12 @@ async def main(args: Namespace):
     log.info('Initialize database connection...')
     await sql.initialize()
 
+    # Detect and cache cameras
+    log.info('Loading cameras...')
+    await gmanager.all_cameras(force_reload=True)
+
     # Create the bot
-    log.info(f'Starting {APP_NAME}...')
-    log.debug(f'Initializing bot...')
+    log.info(f'Initializing bot...')
     bot = GphotoBot(args.sync)
 
     # Start the bot
