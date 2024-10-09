@@ -9,18 +9,29 @@ import re
 from typing import Optional
 
 import gphoto2 as gp
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from gphotobot.conf import TMP_DATA_DIR, settings
+from gphotobot.sql.models.cameras import Cameras as DBCameras
 from gphotobot.utils import const, utils
+from .rotation import Rotation
 
 _log = logging.getLogger(__name__)
+
+# This GPhoto2Error code indicates that the USB device can't be claimed,
+# probably because another process is using the camera
+USB_BUSY_ERROR_CODE = -53
+
+# Regex for identifying the serial number in the camera summary
+SERIAL_NUMBER_REGEX = r'serial\s*number:\s*(\w+)'
 
 
 def retry_if_busy_usb(func):
     """
     This decorator allows us to retry a particular gPhoto command up to n times
-    in the event that we get error code -53, which indicates that the USB device
-    couldn't be claimed because another process is using it.
+    in the event that we get a USB busy error, which indicates that the camera
+    couldn't be accessed because another process is using it.
 
     Args:
         func: The function to retry.
@@ -34,13 +45,13 @@ def retry_if_busy_usb(func):
             try:
                 return await func(*args, **kwargs)
             except gp.GPhoto2Error as e:
-                # Retry only on code -53
-                if e.code == -53 and i < attempts - 1:
+                # Retry only on usb busy error
+                if e.code == USB_BUSY_ERROR_CODE and i < attempts - 1:
                     delay = settings.GPHOTO_RETRY_DELAY
                     _log.warning(
-                        f"Failed to access camera: USB busy (code -53): "
-                        f"attempting retry #{i + 1} in {delay} "
-                        f"second{'' if delay == 1 else 's'}"
+                        f"Failed to access camera: USB busy (code "
+                        f"{USB_BUSY_ERROR_CODE}): attempting retry #{i + 1} "
+                        f"in {delay} second{'' if delay == 1 else 's'}"
                     )
                     await asyncio.sleep(delay)
                 else:
@@ -100,6 +111,22 @@ class GCamera:
         # every use so that it doesn't hog access to the USB device
         self._gp_camera: gp.Camera = gp_camera if gp_camera else gp.Camera()
         self._lock: asyncio.Lock = asyncio.Lock()
+
+        # Record whether this object has been synced with the database
+        self.synced_with_database: bool = False
+
+        # The serial number is used to sync with the database. If this is None,
+        # it means it's not yet known, and we need to query the camera. If this
+        # is an empty string, it means we can't find a serial number for this
+        # camera. Either it's not in the summary, or we couldn't get the
+        # summary.
+        self.serial_number: Optional[str] = None
+
+        # Whether (and how much) to rotate preview images from this camera.
+        # Rotation can be done in 90 degree increments. If this is None, it
+        # indicates that the rotation is unknown, and it'll default to no
+        # rotation.
+        self.rotate_preview: Optional[Rotation] = None
 
         # For some reason, I have to accept a reference to this list and store
         # it here. I never use it at all, and it can be named anything. But if I
@@ -163,6 +190,9 @@ class GCamera:
         Update the address and port info of this camera, usually because it
         was disconnected and reconnected.
 
+        This has the side effect of setting the database sync flag to False and
+        clearing the serial number.
+
         Args:
             addr (str): The address.
             port_info (gp.PortInfo): The port info.
@@ -170,6 +200,158 @@ class GCamera:
 
         self.addr = addr
         self.port_info = port_info
+
+        self.synced_with_database = False
+        self.serial_number = None
+
+    @retry_if_busy_usb
+    async def get_serial_number(self) -> str:
+        """
+        Get the serial number. If it's not set, determine it by retrieving the
+        camera manual.
+
+        Returns:
+            The serial number.
+        """
+
+        if self.serial_number is not None:
+            return self.serial_number
+
+        # Get the camera summary
+        async with self.initialize_camera() as camera:
+            try:
+                summary = str(await asyncio.to_thread(camera.get_summary))
+            except gp.GPhoto2Error as e:
+                if e.code == USB_BUSY_ERROR_CODE:
+                    raise
+                _log.warning(f"Can't get serial number for '{self}'. Got "
+                             f"error {e.code} on get_summary(): {e}")
+                self.serial_number = ""
+                return ""
+
+        # Look for the serial number in the summary
+        if summary:
+            match = re.search(SERIAL_NUMBER_REGEX, summary,
+                              flags=re.IGNORECASE)
+            if match:
+                self.serial_number = match.group(1)
+                return self.serial_number
+            else:
+                _log.debug(f"Couldn't find serial number for '{self}' "
+                           f"in the summary ({len(summary)} chars)")
+        else:
+            _log.debug(f"Couldn't get a summary for '{self}'; failed to find "
+                       f"the serial number")
+
+        # Can't find the serial number
+        self.serial_number = ""
+        return ""
+
+    def get_rotate_preview(self) -> Rotation:
+        """
+        Get how much rotate the preview image. If the current value is None,
+        this will return Rotation.DEGREE_0 for no rotation.
+
+        Returns:
+            The amount to rotate preview images.
+        """
+
+        if self.rotate_preview is None:
+            return Rotation.DEGREE_0
+        else:
+            return self.rotate_preview
+
+    async def sync_with_database(self, session: AsyncSession):
+        """
+        Sync this camera with the Cameras table in the database. This will load
+        the serial number if it's not loaded already.
+
+        Args:
+            session (AsyncSession): The database session.
+        """
+
+        serial = await self.get_serial_number()
+        bus, device = self.get_usb_bus_device()
+        rotation = self.get_rotate_preview()
+
+        _log.debug(f"Syncing '{self}' with database (serial='{serial}')")
+
+        # Look for cameras with the same serial number
+        stmt = select(DBCameras).where(DBCameras.serial_number == serial)
+        result = (await session.scalars(stmt)).all()
+
+        # If no results, add this camera to the database
+        if len(result) == 0:
+            session.add(DBCameras(
+                name=self.name,
+                address=self.addr,
+                usb_bus=bus,
+                usb_device=device,
+                serial_number=self.serial_number,
+                rotate_preview=rotation.value
+            ))
+            _log.info(f"Adding new camera '{self}' to database")
+            self.synced_with_database = True
+            return
+
+        # Check for multiple results (unexpected). This could maybe happen
+        # if they have different names (i.e. different companies)?
+        if len(result) > 1:
+            result_filtered = [r for r in result if r.name == self.name]
+            n = len(result_filtered)
+            if n == 1:
+                result = result_filtered
+            elif n > 1:
+                _log.warning(f"Found {n} cameras in db with serial number "
+                             f"'{serial}' and name '{self.name}'. "
+                             f"Failed to sync")
+                return
+            else:
+                _log.warning(f"Found {len(result)} cameras in db with serial "
+                             f"number '{serial}', but none are named "
+                             f"'{self.name}'. Failed to sync")
+                return
+
+        # Sync any changes with the matching camera
+        if len(result) == 1:
+            cam = result[0]
+            cam.name = self.name
+            cam.address = self.addr
+            cam.usb_bus = bus
+            cam.usb_device = device
+            if self.rotate_preview is None:
+                self.rotate_preview = Rotation(cam.rotate_preview)
+            else:
+                cam.rotate_preview = self.rotate_preview.value
+
+        # The camera is now synced
+        self.synced_with_database = True
+
+    def get_usb_bus_device(self) -> tuple[Optional[int], Optional[int]]:
+        """
+        Get the USB Bus and Device number from the address.
+
+        Returns:
+            tuple[Optional[int], Optional[int]]: The USB Bus and Device number,
+            in that order. If they cannot be determined, both are None.
+        """
+
+        bus, device = None, None
+        match = re.search(self.ADDR_REGEX, self.addr)
+        if match:
+            bus = match.group(1)
+            try:
+                bus = int(bus)
+            except ValueError:
+                _log.warning(f"Couldn't convert bus '{bus}' to an int")
+
+            device = match.group(2)
+            try:
+                device = int(device)
+            except ValueError:
+                _log.warning(f"Couldn't convert device '{device}' to an int")
+
+        return bus, device
 
     def trunc_name(
             self,
@@ -212,9 +394,11 @@ class GCamera:
             str: The formatted address string.
         """
 
-        match = re.match(self.ADDR_REGEX, self.addr)
-        if match:
-            addr = f'USB port\nBus {match.group(1)} | Device {match.group(2)}'
+        bus, device = self.get_usb_bus_device()
+        if bus or device:
+            bus = f'{bus:03d}' if bus else '[Unknown]'
+            device = f'{device:03d}' if device else '[Unknown]'
+            addr = f'USB port\nBus {bus} | Device {device}'
         else:
             addr = self.addr
 
@@ -242,7 +426,7 @@ class GCamera:
 
             # Generate a path for the image in the tmp directory
             name: str = datetime.now().strftime('%Y%m%d_%H%M%S%f') + extension
-            path: Path = TMP_DATA_DIR / name
+            path: Path = TMP_DATA_DIR / 'preview_' + name
 
             await asyncio.to_thread(file.save, str(path))
             _log.debug(f'Saved preview at {path}')

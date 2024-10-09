@@ -11,6 +11,7 @@ from sqlalchemy.orm import sessionmaker
 from gphotobot.conf import settings
 from .models.base import Base
 from .models.timelapses import Timelapses
+from .models.cameras import Cameras
 
 _log = logging.getLogger(__name__)
 

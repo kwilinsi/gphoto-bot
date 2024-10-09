@@ -4,6 +4,7 @@ import logging
 
 import gphoto2 as gp
 
+from gphotobot.sql import async_session_maker
 from . import GCamera, NoCameraFound
 
 _log = logging.getLogger(__name__)
@@ -123,6 +124,9 @@ def _update_cached_cameras(port_info_list: gp.PortInfoList,
     """
     Compare the cached cameras with a list of newly-detected cameras. Look for
     any discrepancies, and resolve them.
+
+    This does NOT sync the cache with the database. That must be done
+    separately.
 
     Args:
         port_info_list: The port info list, used for initializing cameras.
@@ -288,7 +292,21 @@ async def all_cameras(force_reload: bool = False) -> list[GCamera]:
         raise NoCameraFound()
 
     # Compare the cache with the detected cameras, and resolve any discrepancies
-    _update_cached_cameras(port_info_list, abilities_list, detected_cameras)
+    updated = _update_cached_cameras(
+        port_info_list, abilities_list, detected_cameras
+    )
+
+    # Update the database if there were any changes
+    if updated:
+        # Figure out which cameras need to be synced
+        cameras = [c for c in _CAMERAS if not c.synced_with_database]
+        n = len(cameras)
+        _log.info(f"Syncing {n} camera{'' if n == 1 else 's'} with the db...")
+
+        # Sync the cameras
+        async with async_session_maker() as session, session.begin():
+            for cam in cameras:
+                await cam.sync_with_database(session)
 
     # Return the cameras
     return _CAMERAS.copy()

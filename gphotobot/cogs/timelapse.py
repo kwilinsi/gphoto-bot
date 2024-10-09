@@ -491,7 +491,7 @@ class TimelapseCreator(ui.Modal, title='Create a Timelapse'):
         # Try matching against the fancy RegEx for strings like "4d 3h 2m 1.2s"
         # and "3 hours 8 min 5seconds
         match = re.match(self.TIME_PARSE_REGEX, val,
-                         flags=re.RegexFlag.IGNORECASE)
+                         flags=re.IGNORECASE)
 
         # Compute total seconds
         if match:
