@@ -34,8 +34,10 @@ async def handle_gphoto_error(interaction: discord.Interaction[commands.Bot],
     # Add the error code and message
     embed.add_field(
         name=f'Code: {error.code}',
-        value=trunc(error.string if error.string else '*[No details given]*',
-                    const.EMBED_FIELD_VALUE_LENGTH),
+        value=utils.trunc(
+            error.string if error.string else '*[No details given]*',
+            const.EMBED_FIELD_VALUE_LENGTH
+        ),
         inline=False
     )
 
