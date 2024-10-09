@@ -109,46 +109,46 @@ def to_log_level(s: str) -> int:
         return logging.getLevelName(s)
 
 
-def to_optional_int(s):
+def to_int(s: str,
+           min_value: Optional[int] = None,
+           max_value: Optional[int] = None,
+           optional: bool = False) -> Optional[int]:
     """
-    Cast a string to an integer with int(). The only difference is
-    that if the input is None (or empty or the text 'none'), this
-    returns None.
+    Cast a string to an integer, and require it to be within the given range.
+    Use None for the min or max values to disable that constraint. If both the
+    min and max value are None, this is identical to casting with int().
+
+    The integer can also be made optional altogether by specifying
+    optional=True. If it's optional, then input that is empty, blank (only
+    whitespace), None, or the literal strings 'none', 'null', or 'nil'
+    (case in-sensitive) return None.
 
     Args:
-        s: The string to cast.
+        s (str): The string to cast.
+        min_value (Optional[int], optional): The minimum accepted integer
+        (inclusive). If None, there is no minimum. Defaults to None.
+        max_value (Optional[int], optional): The maximum accepted integer
+        (inclusive). If None, there is no maximum. Defaults to None.
+        optional (bool): Whether any integer is required at all. Defaults to
+        False.
 
     Returns:
-        The integer.
-
-    Raises:
-        ValueError: If s is neither None nor an integer.
-    """
-
-    if not s or s.lower() == 'none':
-        return None
-    else:
-        return int(s)
-
-
-def to_positive_int(s: str) -> int:
-    """
-    Cast a string to an integer, and require it to be >= 0 (strictly,
-    non-negative).
-
-    Args:
-        s: The string to cast.
-
-    Returns:
-        The integer.
+        Optional[int]: The integer. This can only be None when optional=True.
 
     Raises:
         ValueError: If s is not an integer.
-        AssertionError: If s is negative.
+        AssertionError: If s is not within the given range.
     """
 
+    if optional:
+        if s is None or not s.strip() or s.lower() in ('none', 'null', 'nil'):
+            return None
+
     i = int(s)
-    assert i >= 0
+    if min_value is not None:
+        assert i >= min_value
+    if max_value is not None:
+        assert i <= max_value
     return i
 
 
@@ -170,13 +170,13 @@ def to_color(color: Optional[str]) -> Optional[Color]:
 
     if not color:
         return None
-    
+
     if len(color) == 6:
         try:
             return Color(int(color, 16))
         except ValueError:
             pass
-    
+
     return Color.from_str(color)
 
 

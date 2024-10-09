@@ -1,4 +1,5 @@
 import logging
+from functools import partial
 from pathlib import Path
 
 from discord import Color
@@ -13,7 +14,7 @@ DISCORD_API_TOKEN = dc.DefaultConfigEntry(section='discord',
 # The ID of the Guild (server) devoted to bot development
 DEVELOPMENT_GUILD_ID = dc.DefaultConfigEntry(
     section='discord',
-    cast_func=int,
+    cast_func=partial(dc.to_int, min_value=1),
     expected='a Discord snowflake integer',
     has_default=False
 )
@@ -21,8 +22,8 @@ DEVELOPMENT_GUILD_ID = dc.DefaultConfigEntry(
 # The ID of a log channel in Discord to send startup messages, etc.
 LOG_CHANNEL_ID = dc.DefaultConfigEntry(
     'discord',
-    cast_func=dc.to_optional_int,
-    expected='a Discord snowflake integer, or empty'
+    cast_func=partial(dc.to_int, min_value=1, optional=True),
+    expected='a Discord snowflake integer, or empty/none'
 )
 
 ################################################################################
@@ -50,7 +51,7 @@ DATABASE_HOST = dc.DefaultConfigEntry(
 DATABASE_PORT = dc.DefaultConfigEntry(
     section='db',
     default=3306,
-    cast_func=dc.to_positive_int,
+    cast_func=partial(dc.to_int, min_value=1),
     expected='a port number'
 )
 
@@ -82,16 +83,16 @@ LOG_LEVEL_FILE = dc.DefaultConfigEntry(
 LOG_MAX_SIZE = dc.DefaultConfigEntry(
     section='log',
     default=5120,
-    cast_func=dc.to_positive_int,
-    expected='a positive integer'
+    cast_func=partial(dc.to_int, min_value=0),
+    expected='a positive integer or 0'
 )
 
 # The number of log files to retain
 LOG_BACKUP_COUNT = dc.DefaultConfigEntry(
     section='log',
     default=5,
-    cast_func=dc.to_positive_int,
-    expected='Expected an integer'
+    cast_func=partial(dc.to_int, min_value=0),
+    expected='a positive integer or 0'
 )
 
 # Minimum log level for discord.py library internals
@@ -133,8 +134,8 @@ ERROR_EMBED_COLOR = dc.DefaultConfigEntry(
 ERROR_TRACEBACK_LENGTH = dc.DefaultConfigEntry(
     section='messages',
     default=4,
-    cast_func=dc.to_positive_int,
-    expected='Expected an integer >=0'
+    cast_func=partial(dc.to_int, min_value=0),
+    expected='a positive integer or 0'
 )
 
 ################################################################################
