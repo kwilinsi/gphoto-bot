@@ -109,7 +109,7 @@ def to_log_level(s: str) -> int:
         return logging.getLevelName(s)
 
 
-def to_int(s: str,
+def to_int(s: Optional[str],
            min_value: Optional[int] = None,
            max_value: Optional[int] = None,
            optional: bool = False) -> Optional[int]:
@@ -124,7 +124,7 @@ def to_int(s: str,
     (case in-sensitive) return None.
 
     Args:
-        s (str): The string to cast.
+        s (Optional[str]): The string to cast.
         min_value (Optional[int], optional): The minimum accepted integer
         (inclusive). If None, there is no minimum. Defaults to None.
         max_value (Optional[int], optional): The maximum accepted integer
@@ -150,6 +150,41 @@ def to_int(s: str,
     if max_value is not None:
         assert i <= max_value
     return i
+
+
+def to_float(s: Optional[str],
+             min_value: Optional[float] = None,
+             max_value: Optional[float] = None,
+             optional: bool = False) -> Optional[float]:
+    """
+    This is identical to to_int() except that it processes floats.
+
+    Args:
+        s (Optional[str]): The string to cast.
+        min_value (Optional[float], optional): The minimum accepted float.
+        Defaults to None.
+        max_value (Optional[float], optional): The maximum accepted float.
+        Defaults to None.
+        optional (bool): Whether a float is required at all. Defaults to False.
+
+    Returns:
+        Optional[float]: The float, or None if no float was given.
+
+    Raises:
+        ValueError: If s is not a float.
+        AssertionError: If s is not within the given range.
+    """
+
+    if optional:
+        if s is None or not s.strip() or s.lower() in ('none', 'null', 'nil'):
+            return None
+
+    f = float(s)
+    if min_value is not None:
+        assert f >= min_value
+    if max_value is not None:
+        assert f <= max_value
+    return f
 
 
 def to_color(color: Optional[str]) -> Optional[Color]:

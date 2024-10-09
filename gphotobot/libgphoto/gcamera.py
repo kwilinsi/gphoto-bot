@@ -1,6 +1,7 @@
 import asyncio
-from copy import copy
+from contextlib import asynccontextmanager
 from datetime import datetime
+import functools
 import logging
 import os
 from pathlib import Path
@@ -9,10 +10,43 @@ from typing import Optional
 
 import gphoto2 as gp
 
-from gphotobot.conf import TMP_DATA_DIR
+from gphotobot.conf import TMP_DATA_DIR, settings
 from gphotobot.utils import const, utils
 
 _log = logging.getLogger(__name__)
+
+
+def retry_if_busy_usb(func):
+    """
+    This decorator allows us to retry a particular gPhoto command up to n times
+    in the event that we get error code -53, which indicates that the USB device
+    couldn't be claimed because another process is using it.
+
+    Args:
+        func: The function to retry.
+    """
+
+    @functools.wraps(func)
+    async def wrapper(*args, **kwargs):
+        attempts = settings.GPHOTO_MAX_RETRY_ATTEMPTS_ON_BUSY_USB + 1
+
+        for i in range(attempts):
+            try:
+                return await func(*args, **kwargs)
+            except gp.GPhoto2Error as e:
+                # Retry only on code -53
+                if e.code == -53 and i < attempts - 1:
+                    delay = settings.GPHOTO_RETRY_DELAY
+                    _log.warning(
+                        f"Failed to access camera: USB busy (code -53): "
+                        f"attempting retry #{i + 1} in {delay} "
+                        f"second{'' if delay == 1 else 's'}"
+                    )
+                    await asyncio.sleep(delay)
+                else:
+                    raise
+
+    return wrapper
 
 
 class GCamera:
@@ -82,36 +116,47 @@ class GCamera:
     def __str__(self):
         return self.trunc_name()
 
-    async def __aenter__(self) -> gp.Camera:
+    @asynccontextmanager
+    async def initialize_camera(self):
         """
-        Initialize the gp camera in an async context. This guarantees that it
-        will exit.
+        Initialize the gp_camera with asyncio to prevent IO blocking. When done,
+        the camera automatically exits. Open this as a context manager as
+        follows:
 
-        This also enforces concurrent access to the gp_camera.
-
-        Returns:
-              An initialized camera.
+        with initialize_camera() as camera:
+            camera.do_something()
         """
 
-        # Ensure sequential access to the camera
-        await self._lock.acquire()
-
-        def init():
+        # Camera initialization function
+        def init_camera():
+            _log.debug(f"Initializing '{self}' gp_camera")
             self._gp_camera.set_port_info(self.port_info)
             self._gp_camera.set_abilities(self.abilities)
             self._gp_camera.init()
 
-        await asyncio.to_thread(init)
-        return self._gp_camera
+        # Camera exit function
+        def exit_camera():
+            try:
+                _log.debug(f"Exiting '{self}' gp_camera")
+                self._gp_camera.exit()
+            except gp.GPhoto2Error as e:
+                _log.warning(f"Failed to exit gp_camera on '{self}' "
+                             f"(code {e.code}): {e}")
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        ########################################
+
+        # Ensure sequential access to the camera
+        await self._lock.acquire()
+        _log.debug("Acquired lock on gp_camera on '{self}'")
+
+        # Initialize, yield, and auto-exit
         try:
-            self._gp_camera.exit()
-        except gp.GPhoto2Error as e:
-            _log.warning(f'Failed to exit gp_camera in context manager: {e}')
+            await asyncio.to_thread(init_camera)
+            yield self._gp_camera
         finally:
-            # Release access to the lock so another process can use the camera
+            await asyncio.to_thread(exit_camera)
             self._lock.release()
+            _log.debug(f"Released lock on gp_camera on '{self}'")
 
     def update_address(self, addr: str, port_info: gp.PortInfo) -> None:
         """
@@ -178,6 +223,7 @@ class GCamera:
         else:
             return utils.trunc(addr, max_len)
 
+    @retry_if_busy_usb
     async def preview_photo(self) -> Path:
         """
         Capture a preview photo.
@@ -188,7 +234,7 @@ class GCamera:
 
         _log.info(f"Capturing preview photo on '{self.trunc_name()}'...")
 
-        async with self as camera:
+        async with self.initialize_camera() as camera:
             file = await asyncio.to_thread(camera.capture_preview)
 
             # Get the file extension used by the default name

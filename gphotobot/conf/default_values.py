@@ -1,9 +1,8 @@
-import logging
 from functools import partial
+import logging
 from pathlib import Path
 
 from discord import Color
-from discord.mentions import default
 
 from . import default_config_entry as dc
 
@@ -148,4 +147,22 @@ DEFAULT_TIMELAPSE_ROOT_DIRECTORY = dc.DefaultConfigEntry(
     expected="An absolute directory "
              "(doesn't need to exist, but can't be a file)",
     has_default=False
+)
+
+# The number of times to retry gPhoto commands if they fail with error code -53,
+# indicating a busy USB device. If 0, no retries are attempted.
+GPHOTO_MAX_RETRY_ATTEMPTS_ON_BUSY_USB = dc.DefaultConfigEntry(
+    section='camera',
+    default=3,
+    cast_func=partial(dc.to_int, min_value=0),
+    expected='Expected a positive integer or 0'
+)
+
+# The time to wait (in seconds) between retrying gPhoto commands that failed. If
+# the max retry attempts is 0, this doesn't do anything.
+GPHOTO_RETRY_DELAY = dc.DefaultConfigEntry(
+    section='camera',
+    default=1.5,
+    cast_func=partial(dc.to_float, min_value=0),
+    expected='Expected a positive number or 0'
 )
