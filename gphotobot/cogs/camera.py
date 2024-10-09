@@ -12,16 +12,18 @@ from gphotobot.libgphoto import GCamera, gmanager, gutils, NoCameraFound
 _log = logging.getLogger(__name__)
 
 
-class Camera(commands.Cog):
+class Camera(commands.GroupCog,
+             group_name='camera',
+             group_description='List and manage connected cameras'):
     def __init__(self, bot: GphotoBot):
         self.bot: GphotoBot = bot
 
-    @app_commands.command(description='Show available cameras',
+    @app_commands.command(description='List all connected cameras',
                           extras={'defer': True})
-    async def camera(self,
-                     interaction: discord.Interaction[commands.Bot]) -> None:
+    async def list(self,
+                   interaction: discord.Interaction[commands.Bot]) -> None:
         """
-        Show a list of available cameras.
+        Show a list of connected cameras.
 
         Args:
             interaction (discord.Interaction[commands.Bot]): The interaction.
@@ -58,7 +60,7 @@ class Camera(commands.Cog):
 
             # Add this camera
             embed.add_field(name=camera.trunc_name(),
-                            value=camera.formatted_addr())
+                            value=await camera.info())
 
         # Send the list of cameras
         await interaction.followup.send(embed=embed)

@@ -208,7 +208,7 @@ class GCamera:
     async def get_serial_number(self) -> str:
         """
         Get the serial number. If it's not set, determine it by retrieving the
-        camera manual.
+        camera summary.
 
         Returns:
             The serial number.
@@ -374,38 +374,45 @@ class GCamera:
         else:
             return utils.trunc(self.name, max_len)
 
-    def formatted_addr(
-            self,
-            max_len: Optional[int] = const.EMBED_FIELD_VALUE_LENGTH
-    ) -> str:
+    async def info(self) -> str:
         """
-        Get a formatted string with the camera address. If it conforms to the
-        expected RegEx form for a USB address, this is a string indicating the
-        USB bus and device. Otherwise, it's just the raw address string.
-
-        If necessary, the address is truncated to fit within the max_len.
-
-        Args:
-            max_len (Optional[int]): The maximum length of the address. If None,
-            it is never truncated. Defaults to the maximum length of the value
-            in an embed field.
+        Get a formatted string with some basic info about the camera. Note that
+        this does not include the name.
 
         Returns:
-            str: The formatted address string.
+            An info string.
         """
 
+        # Get the serial number
+        serial = await self.get_serial_number()
+        if not serial:
+            serial = '[Unknown]'
+        elif serial.startswith('0'):
+            # If the serial number is an integer with leading zeros, trim them
+            try:
+                int(serial)
+                serial = serial.lstrip('0')
+            except ValueError:
+                pass
+
+        # Get the rotation as a nicely formatted string
+        rotation = str(self.get_rotate_preview())
+
+        # Format the address
         bus, device = self.get_usb_bus_device()
         if bus or device:
             bus = f'{bus:03d}' if bus else '[Unknown]'
             device = f'{device:03d}' if device else '[Unknown]'
-            addr = f'USB port\nBus {bus} | Device {device}'
+            addr = f'USB Bus {bus} | Device {device}'
         else:
             addr = self.addr
 
-        if max_len is None:
-            return addr
-        else:
-            return utils.trunc(addr, max_len)
+        # Combine everything
+        info = utils.trunc(f'**Addr:** {addr}\n'
+                           f'**Serial Number:** {serial}\n'
+                           f'**Preview Rotation:** {rotation}',
+                           const.EMBED_FIELD_VALUE_LENGTH)
+        return info
 
     @retry_if_busy_usb
     async def preview_photo(self) -> Path:
