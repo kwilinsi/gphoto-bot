@@ -126,7 +126,7 @@ class GCamera:
         # Rotation can be done in 90 degree increments. If this is None, it
         # indicates that the rotation is unknown, and it'll default to no
         # rotation.
-        self.rotate_preview: Optional[Rotation] = None
+        self._rotate_preview: Optional[Rotation] = None
 
         # For some reason, I have to accept a reference to this list and store
         # it here. I never use it at all, and it can be named anything. But if I
@@ -285,10 +285,23 @@ class GCamera:
             The amount to rotate preview images.
         """
 
-        if self.rotate_preview is None:
+        if self._rotate_preview is None:
             return Rotation.DEGREE_0
         else:
-            return self.rotate_preview
+            return self._rotate_preview
+
+    def set_rotate_preview(self, rotation: Rotation):
+        """
+        Set a new rotation preview for this camera. If it's different from the
+        existing value, this resets the database sync flag.
+
+        Args:
+            rotation: The new rotation.
+        """
+
+        if self._rotate_preview != rotation:
+            self._rotate_preview = rotation
+            self.synced_with_database = False
 
     async def sync_with_database(self, session: AsyncSession):
         """
@@ -348,10 +361,10 @@ class GCamera:
             cam.address = self.addr
             cam.usb_bus = bus
             cam.usb_device = device
-            if self.rotate_preview is None:
-                self.rotate_preview = Rotation(cam.rotate_preview)
+            if self._rotate_preview is None:
+                self._rotate_preview = Rotation(cam.rotate_preview)
             else:
-                cam.rotate_preview = self.rotate_preview.value
+                cam.rotate_preview = self._rotate_preview.value
 
         # The camera is now synced
         self.synced_with_database = True

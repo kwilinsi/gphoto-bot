@@ -24,4 +24,4 @@ class Cameras(Base):
     serial_number: Mapped[Optional[str]] = mapped_column(
         String(SERIAL_NUMBER_MAX_LENGTH)
     )
-    rotate_preview: Mapped[int] = mapped_column(TINYINT(), default=False)
+    rotate_preview: Mapped[int] = mapped_column(SmallInteger(), default=False)

@@ -4,7 +4,7 @@ import logging
 
 import gphoto2 as gp
 
-from gphotobot.sql import async_session_maker
+from gphotobot import sql
 from . import GCamera, NoCameraFound
 
 _log = logging.getLogger(__name__)
@@ -304,7 +304,7 @@ async def all_cameras(force_reload: bool = False) -> list[GCamera]:
         _log.info(f"Syncing {n} camera{'' if n == 1 else 's'} with the db...")
 
         # Sync the cameras
-        async with async_session_maker() as session, session.begin():
+        async with sql.async_session_maker() as session, session.begin():
             for cam in cameras:
                 await cam.sync_with_database(session)
 

@@ -112,6 +112,13 @@ DEFAULT_EMBED_COLOR = dc.DefaultConfigEntry(
     expected='Expected a color hex code'
 )
 
+DISABLED_EMBED_COLOR = dc.DefaultConfigEntry(
+    section='messages',
+    default=Color.dark_gray(),
+    cast_func=dc.to_color,
+    expected='Expected a color hex code'
+)
+
 # The color of embeds related to bot management
 MANAGEMENT_EMBED_COLOR = dc.DefaultConfigEntry(
     section='messages',
