@@ -426,7 +426,7 @@ class GCamera:
 
             # Generate a path for the image in the tmp directory
             name: str = datetime.now().strftime('%Y%m%d_%H%M%S%f') + extension
-            path: Path = TMP_DATA_DIR / 'preview_' + name
+            path: Path = TMP_DATA_DIR / ('preview_' + name)
 
             await asyncio.to_thread(file.save, str(path))
             _log.debug(f'Saved preview at {path}')
