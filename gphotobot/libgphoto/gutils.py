@@ -23,7 +23,7 @@ async def handle_gphoto_error(interaction: discord.Interaction[commands.Bot],
     """
 
     # Build an embed to nicely display the error
-    embed = error_embed(
+    embed: discord.Embed = utils.error_embed(
         error,
         text,
         'gPhoto2 Error',
@@ -39,7 +39,7 @@ async def handle_gphoto_error(interaction: discord.Interaction[commands.Bot],
         inline=False
     )
 
-    await update_interaction(interaction, embed)
+    await utils.update_interaction(interaction, embed)
 
     # Log details
     _log.error(f"{text} (Code {error.code}): "

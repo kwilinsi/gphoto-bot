@@ -112,7 +112,7 @@ class Photo(commands.GroupCog,
         # Create the result embed
         embed = discord.Embed(
             title='Camera Preview',
-            description=f'Preview image from **{camera}**',
+            description=f'Preview image from **{gcamera}**',
             color=settings.DEFAULT_EMBED_COLOR,
             timestamp=datetime.now()
         )
