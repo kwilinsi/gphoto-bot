@@ -7,7 +7,7 @@ import re
 import traceback
 
 import discord
-from discord import app_commands
+from discord import app_commands, utils as discord_utils
 from discord.ext import commands
 
 from gphotobot.conf import settings
@@ -16,16 +16,29 @@ from . import const
 _log = logging.getLogger(__name__)
 
 
-def trunc(s: str, n: int, ellipsis_str: str = '…') -> Optional[str]:
+def trunc(s: str,
+          n: int,
+          ellipsis_str: str = '…',
+          escape_markdown: bool = False) -> Optional[str]:
     """
     Truncate a string to a maximum of n character(s).
 
+    If after truncating, the string ends with an odd number of backslashes
+    (before the ellipsis string), then the last backslash is also removed.
+    This could put the resulting string from this method one below the
+    character limit.
+
+    When escaping Markdown is enabled, it is escaped before truncating. Note
+    that a string may appear shorter in Discord than it actually is due to
+    Markdown formatting.
+
     Args:
-        s (str): The string to truncate. If this is None, it returns None.
-        n (int): The maximum number of characters.
-        ellipsis_str (str, optional): The ellipsis character to put at the end
-        if the string is too long. This is removed from the maximum length.
-        Defaults to '…'.
+        s: The string to truncate. If this is None, it returns None.
+        n: The maximum number of characters.
+        ellipsis_str: The ellipsis character to put at the end if the string is
+        This is removed from the maximum length. Defaults to '…'.
+        escape_markdown: Whether to escape markdown characters. Defaults to
+        False.
 
     Returns:
         str: The truncated string.
@@ -34,8 +47,18 @@ def trunc(s: str, n: int, ellipsis_str: str = '…') -> Optional[str]:
     if s is None:
         return None
 
+    if escape_markdown:
+        s = discord_utils.escape_markdown(s)
+
     if len(s) > n:
-        return s[:n - len(ellipsis_str)] + ellipsis_str
+        # Trim to length (with enough space to add the ellipsis)
+        s = s[:n - len(ellipsis_str)]
+
+        # If it ends with an odd number of backslashes, remove the last one
+        if s.endswith('\\') and (len(s) - len(s.rstrip('\\'))) % 2 == 1:
+            return s[:-1] + ellipsis_str
+        else:
+            return s + ellipsis_str
     else:
         return s
 
@@ -357,6 +380,7 @@ async def handle_err(interaction: discord.Interaction[commands.Bot],
     log_text = log_text if log_text else text if text else '[No details given]'
     _log.error(f'{log_text}: {error}')
     _log.debug(f'Traceback on {error.__class__.__name__}:', exc_info=True)
+
 
 async def update_interaction(interaction: discord.Interaction[commands.Bot],
                              embed: discord.Embed) -> None:

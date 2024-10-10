@@ -1,24 +1,93 @@
-from datetime import datetime, timedelta
-import dateutil.parser
 import logging
-from pathlib import Path
 import re
-from typing import Literal, Optional
+from typing import Literal
 
 import discord
 from discord import app_commands, ui
 from discord.ext import commands
-from sqlalchemy import exc
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import exc, func, select
 
 from gphotobot.bot import GphotoBot
 from gphotobot.conf import settings
-from gphotobot.sql import async_session_maker
-from gphotobot.sql.models import timelapses
 from gphotobot.utils import const, utils
-from gphotobot.utils.validation_error import ValidationError
+from gphotobot.sql import async_session_maker
+from gphotobot.sql.models.timelapses import Timelapses, NAME_MAX_LENGTH
 
 _log = logging.getLogger(__name__)
+
+
+class InvalidTimelapseNameError(Exception):
+    def __init__(self,
+                 name: str,
+                 problem: Literal['taken', 'taken_case', 'length',
+                 'char', 'start_char'],
+                 is_shortened: bool):
+        """
+        Initialize an exception that explains what's wrong about a particular
+        user-attempted name.
+
+        The recognized problems are:
+        - 'taken': This name is already used by another timelapse in the db.
+        - 'taken_case': The same as 'taken' except that the names are
+        capitalized differently.
+        - 'length': The name exceeds the maximum length.
+        - 'char': The name uses one or more invalid characters.
+        - 'start_char': The name starts with an invalid character.
+
+        Args:
+            name: The name the user attempted to use. More specifically, the
+            name that makes the most sense for explaining the issue to the
+            user. If the name had consecutive underscores, this may or may not
+            have them removed.
+            problem: The reason the name is invalid.
+            is_shortened: Whether consecutive hyphens/underscores were
+            shortened into a single character.
+        """
+
+        super().__init__()
+        self.name = name
+        self.problem = problem
+        self.is_shortened = is_shortened
+
+
+async def validate_name(name: str) -> str:
+    """
+    Validate a new timelapse name and return it.
+
+    Args:
+        name: The name to validate.
+
+    Returns:
+        The validated name. This may be different from the input name.
+
+    Raises:
+        InvalidTimelapseNameError: If the name is invalid.
+    """
+
+    # Consolidate consecutive hyphens/underscores
+    n = re.sub(r'([_-])[-_]+', r'\1', name)
+    is_shortened = name != n
+
+    if len(n) > NAME_MAX_LENGTH or len(n) < 1:
+        raise InvalidTimelapseNameError(n, 'length', is_shortened)
+
+    if re.search(r'[^\w-]', n):
+        raise InvalidTimelapseNameError(name, 'char', is_shortened)
+
+    if not n[0].isalpha():
+        raise InvalidTimelapseNameError(name, 'start_char', is_shortened)
+
+    # Check database for duplicate name
+    async with async_session_maker() as session:  # read-only session
+        stmt = (select(Timelapses)
+                .where(func.lower(Timelapses.name) == n.lower()))
+        result: Timelapses = (await session.scalars(stmt)).first()
+        if result is not None:
+            raise InvalidTimelapseNameError(
+                n, 'taken' if result.name == n else 'taken_case', is_shortened
+            )
+
+    return n
 
 
 class Timelapse(commands.Cog):
@@ -26,13 +95,13 @@ class Timelapse(commands.Cog):
         self.bot: GphotoBot = bot
 
     @staticmethod
-    def get_timelapse_info(timelapse: timelapses.Timelapses) -> str:
+    def get_timelapse_info(timelapse: Timelapses) -> str:
         """
         Get a formatted string with information about a timelapse. This is
         designed for Discord.
 
         Args:
-            timelapse (timelapses.Timelapses): The timelapse.
+            timelapse: The timelapse.
 
         Returns:
             str: The info string.
@@ -70,31 +139,35 @@ class Timelapse(commands.Cog):
 
         return info
 
-    @app_commands.command(description='Prepare a new timelapse')
+    @app_commands.command(description='Create a new timelapse',
+                          extras={'defer': True})
+    @app_commands.describe(
+        name=f'A unique name (max {NAME_MAX_LENGTH} characters)'
+    )
     async def create(self,
-                     interaction: discord.Interaction[commands.Bot]) -> None:
+                     interaction: discord.Interaction[commands.Bot],
+                     name: str) -> None:
         """
         Create a new timelapse.
 
         Args:
-            interaction (discord.Interaction[commands.Bot]): The interaction.
+            interaction: The interaction.
+            name: The user-input name for the timelapse.
         """
 
-        # TODO change this to keep track of the default name for the day so I
-        #  don't have to query the database, which could time out
+        # Defer a response
+        await interaction.response.defer(thinking=True)
 
-        async with async_session_maker() as session:  # read-only session
-            # Generate default info
-            name: str = await timelapses.generate_default_name(session)
-            directory: Path = settings.DEFAULT_TIMELAPSE_ROOT_DIRECTORY / name
+        # Validate the user's timelapse name
+        try:
+            validated_name = await validate_name(name)
+        except InvalidTimelapseNameError as e:
+            view = TimelapseInvalidName(interaction, e)
+            await interaction.followup.send(embed=view.embed(), view=view)
+            return
 
-            # Create a modal
-            creator = TimelapseCreator()
-            creator.name.default = name
-            creator.directory.default = str(directory)
-
-            # Send the modal to prompt the user for more info
-            await interaction.response.send_modal(creator)
+        # Create a new timelapse
+        await interaction.followup.send(content=f'Creating {validated_name}')
 
     @app_commands.command(description='Show all active timelapses',
                           extras={'defer': True})
@@ -113,7 +186,7 @@ class Timelapse(commands.Cog):
         # Query active timelapses from database
         try:
             async with async_session_maker() as session:  # read-only session
-                active_timelapses: list[timelapses.Timelapses] = \
+                active_timelapses: list[Timelapses] = \
                     await timelapses.get_all_active(session)
         except exc.SQLAlchemyError as error:
             await utils.handle_err(
@@ -167,396 +240,223 @@ class Timelapse(commands.Cog):
         await interaction.followup.send(embed=embed)
 
 
-class TimelapseCreator(ui.Modal, title='Create a Timelapse'):
-    # noinspection SpellCheckingInspection
-    TIME_PARSE_REGEX = (r'^(?:(\d*(?:\.\d+)?) *y(?:ears?|rs?)?)? *'
-                        r'(?:(\d*(?:\.\d+)?) *d(?:ays?|s?)?)? *'
-                        r'(?:(\d*(?:\.\d+)?) *h(?:ours?|rs?)?)? *'
-                        r'(?:(\d*(?:\.\d+)?) *m(?:inutes?|ins?)?)? *'
-                        r'(?:(\d*(?:\.\d+)?) *s(?:econds?|ecs?)?)?$')
+class TimelapseInvalidName(ui.View):
+    # The maximum number of attempts the user can make with the same problem
+    # before this view is auto cancelled
+    MAX_CONSECUTIVE_ATTEMPTS: int = 5
 
-    # Instructions for error messages
-    START_TIME_INSTRUCTIONS = (
-        'Enter the time to start the timelapse, or leave it blank to start it '
-        'manually. Use "now" or "begin" to start immediately. Or enter a '
-        f'date/time, like "5:00 a.m." or "{str(datetime.today().date())} '
-        f'{(datetime.now() + timedelta(hours=1, minutes=20)).strftime(
-            "%I:%M:%S %p")}".'
-    )
-    END_CONDITION_INSTRUCTIONS = (
-        'Enter the condition to end the timelapse: either the total number of '
-        'frames to capture, or use a specific date/time like "8:30 a.m." or '
-        f'"{str(datetime.today().date())} '
-        f'{(datetime.now() + timedelta(hours=2, minutes=15)).strftime(
-            "%I:%M:%S %p")}".'
-    )
-    INTERVAL_INSTRUCTIONS = ('Enter a duration of time, like "2 minutes", '
-                             '"12s", or "00:10:00".')
-
-    # These strings are all equivalent to "now" for the start time
-    START_TIME_NOW_EQUIVALENTS = [
-        'now', 'start', 'right now', 'begin', 'begin now'
-    ]
-
-    # The timelapse name
-    name = ui.TextInput(
-        label='Name',
-        required=True,
-        placeholder='Enter a name to access this timelapse later',
-        max_length=timelapses.NAME_MAX_LENGTH
-    )
-
-    # The directory for storing photos
-    directory = ui.TextInput(
-        label='Folder for photos',
-        required=True,
-        placeholder='Choose a directory to store the photos',
-        max_length=timelapses.DIRECTORY_MAX_LENGTH
-    )
-
-    # The time to start capturing
-    start_time = ui.TextInput(
-        label='Start time',
-        placeholder="Enter start time, 'now', or omit to start manually",
-        required=False,
-        max_length=100
-    )
-
-    # The time to wait between captures
-    interval = ui.TextInput(
-        label='Interval between captures',
-        placeholder="Enter a time: (ex. '5s', '1h 5m', '10d 4h 3m 2s')",
-        required=True,
-        max_length=100
-    )
-
-    # The time to end or the number of frames to end on
-    end_condition = ui.TextInput(
-        label='End at',
-        required=True,
-        placeholder='Enter end time or number of frames to capture',
-        max_length=100
-    )
-
-    async def validate_input(self, session: AsyncSession) -> \
-            tuple[str,
-            str,
-            Optional[datetime | Literal['now']],
-            Optional[datetime],
-            Optional[int],
-            float]:
-        """
-        Validate all the arguments in the modal.
-
-        Args:
-            session (AsyncSession): The database session.
-
-        Returns:
-            A tuple with each validated argument: the name, directory, start
-            time, end time, total frames, and interval.
-
-        Raises:
-            ValidationError: If anything fails validation, this is raised, and
-            the message should be sent to the user.
-        """
-
-        # Validate the name
-        name = self.name.value.strip()
-        if await timelapses.is_name_active(session, name):
-            raise ValidationError(
-                'name',
-                f'That name is already in use by an active '
-                'timelapse. You can see a list of timelapses with '
-                '`/timelapse list`.'
-            )
-        elif len(name) > timelapses.NAME_MAX_LENGTH:
-            raise ValidationError(
-                'name',
-                "The name can't be longer than "
-                f"{timelapses.NAME_MAX_LENGTH} characters."
-            )
-
-        # Validate the directory
-        # TODO add more validation here to check whether it already contains
-        #  files and such
-        directory = self.directory.value
-        if len(directory) > timelapses.DIRECTORY_MAX_LENGTH:
-            raise ValidationError(
-                'directory',
-                f"The directory path can't be longer than"
-                f" {timelapses.NAME_MAX_LENGTH} characters."
-            )
-
-        # Validate the start time
-        try:
-            start_time = self.parse_start_time()
-        except ValueError:
-            raise ValidationError(
-                'start_time',
-                'Invalid start time. ' + self.START_TIME_INSTRUCTIONS
-            )
-        except AssertionError:
-            raise ValidationError(
-                'start_time',
-                "Invalid start time: it can't be in the past. " +
-                self.START_TIME_INSTRUCTIONS
-            )
-
-        # Validate the end condition
-        try:
-            end_time, total_frames = self.parse_end_condition(start_time)
-        except ValueError:
-            raise ValidationError(
-                'end_condition',
-                'Invalid end condition. ' + self.END_CONDITION_INSTRUCTIONS
-            )
-        except AssertionError:
-            raise ValidationError(
-                'end_condition',
-                "Invalid end time: it can't be in the past or after "
-                "the start time."
-            )
-
-        # Validate the interval
-        try:
-            interval = self.parse_interval()
-        except ValueError:
-            raise ValidationError(
-                'interval',
-                'Invalid interval. ' + self.INTERVAL_INSTRUCTIONS
-            )
-        except AssertionError:
-            raise ValidationError(
-                'interval',
-                'Missing interval. ' + self.INTERVAL_INSTRUCTIONS
-            )
-
-        return name, directory, start_time, end_time, total_frames, interval
-
-    async def on_submit(self, interaction: discord.Interaction) -> None:
-        """
-        Process the user's input to the modal.
-
-        Args:
-            interaction: The interaction.
-        """
-
-        await interaction.response.defer(thinking=True)
-
-        # Writable session
-        async with async_session_maker() as session, session.begin():
-            # Validate user input
-            try:
-                name, directory, start_time, end_time, \
-                    total_frames, interval = await self.validate_input(session)
-            except ValidationError as e:
-                await self.invalid_input(interaction, e.message, e.attribute)
-                return
-
-            # Only add start time to the database if there's an exact time
-            start = start_time if isinstance(start_time, datetime) else None
-
-            timelapse = timelapses.Timelapses(
-                name=self.name.value,
-                user_id=interaction.user.id,
-                directory=directory,
-                start_time=start,
-                end_time=end_time,
-                interval=interval,
-                total_frames=total_frames
-            )
-
-            session.add(timelapse)
-
-        await interaction.followup.send('Thanks, added your timelapse!')
-
-    async def invalid_input(self,
-                            interaction: discord.Interaction,
-                            message: str,
-                            parameter: str) -> None:
-        """
-        Respond to the interaction with an error message indicating that the
-        user's input was invalid.
-
-        Args:
-            interaction (discord.Interaction): The interaction.
-            message (str): A descriptive message to send the user.
-            parameter (str): The name of the parameter that was invalid.
-        """
-
-        embed = utils.contrived_error_embed(
-            title='Invalid Input',
-            text=message,
-        )
-
-        error_view = TimelapseCreatorError(self, parameter)
-        message = await interaction.followup.send(embed=embed, view=error_view)
-        _log.info(f'I want to delete this message: type = {type(message)}\n'
-                  "For now I'm just deleting the followup...")
-        await interaction.followup.delete()
-
-    def parse_start_time(self) -> Optional[datetime | Literal['now']]:
-        """
-        Attempt the parse the start time, if a time was given. If the start
-        time is given as "now," wait to resolve that to a time until the
-        timelapse actually begins.
-
-        Returns:
-            Optional[datetime | Literal['now']]: The start time, if specified,
-            or the string 'now' if that was given.
-
-        Raises:
-            ValueError: If the time is given but cannot be parsed.
-            AssertionError: If the time can be parsed, but it's in the past.
-        """
-
-        val = self.start_time.value
-
-        if not val:
-            return None
-        elif val.strip().lower() in self.START_TIME_NOW_EQUIVALENTS:
-            return 'now'
-
-        # Try parsing it as a datetime
-        try:
-            dt = dateutil.parser.parse(val)
-            # If the time is in the past, reject it
-            assert dt >= datetime.now()
-            return dt
-        except dateutil.parser.ParserError | OverflowError:
-            raise ValueError()
-
-    def parse_end_condition(self,
-                            start: Optional[datetime | Literal['now']]) -> \
-            tuple[Optional[datetime], Optional[int]]:
-        """
-        Attempt to parse whatever value the user put for the end condition.
-        It could be an end time or a number of frames.
-
-        Args:
-            start (Optional[datetime | Literal['now']]): The start time. If
-            given, the end time must be after this.
-
-        Returns:
-            tuple[Optional[datetime], Optional[int]]: The end time and the
-            number of frames. Exactly one of these will be None.
-
-        Raises:
-            ValueError: If the end condition cannot be parsed.
-            AssertionError: If the end condition is an invalid datetime (either
-            because it's in the past or the user didn't specify a time).
-        """
-
-        val = self.end_condition.value
-
-        # Frames will either be a single number or a two-word string like
-        # "50 frames"
-        split = val.split(' ')
-        if len(split) <= 2 and split[0].isdigit():
-            return None, int(split[0])
-
-        # Try parsing it as a datetime
-        try:
-            dt = dateutil.parser.parse(val)
-            # If the time is in the past, reject it
-            assert dt >= datetime.now()
-
-            # If a start time is given, the end time must come after
-            if isinstance(start, datetime):
-                assert dt > start
-
-            return dt, None
-        except dateutil.parser.ParserError | OverflowError:
-            raise ValueError()
-
-    def parse_interval(self) -> float:
-        """
-        Attempt to parse whatever value the user put for the interval.
-
-        Note: This interprets strings like 4:02 as 4 hours and 2 minutes. That
-        should probably be fixed to read as 4 minutes and 2 seconds, which will
-        definitely be more common in this case.
-
-        Returns:
-            int: The interval, in seconds.
-
-        Raises:
-            AssertionError: If no interval was given at all.
-            ValueError: If the interval cannot be parsed.
-        """
-
-        val = self.interval.value
-        assert isinstance(val, str) and val.strip()
-
-        # Try matching against the fancy RegEx for strings like "4d 3h 2m 1.2s"
-        # and "3 hours 8 min 5seconds
-        match = re.match(self.TIME_PARSE_REGEX, val,
-                         flags=re.IGNORECASE)
-
-        # Compute total seconds
-        if match:
-            interval = 0
-            for index, factor in enumerate([1, 60, 3600, 86400, 31536000]):
-                val = match.group(index + 1)
-                interval += factor * float(val if val else 0)
-            return interval
-
-        # Try using dateutil to parse a time as an interval
-        try:
-            dt = dateutil.parser.parse(val)
-            # If the user specified a date, they're doing this wrong
-            if dt.date() != datetime.today().date():
-                raise ValueError()
-
-            # Interpret the time as a duration of seconds, and make sure it's
-            # not 0
-            time = dt.time()
-            interval = (time.hour * 3600 + time.minute * 60 +
-                        time.second + time.microsecond / 1000)
-            assert interval > 0
-            return interval
-        except dateutil.parser.ParserError | OverflowError:
-            raise ValueError()
-
-
-class TimelapseCreatorError(ui.View):
     def __init__(self,
-                 creator: TimelapseCreator,
-                 errant_parameter: str):
+                 interaction: discord.Interaction[commands.Bot],
+                 error: InvalidTimelapseNameError):
         """
-        Initialize a view for an error creating a timelapse.
+        Initialize an invalid name taken view to tell the user that they need
+        to pick a different name (and help them do so).
 
         Args:
-            creator: The creator modal.
-            errant_parameter: The name of the parameter that had an issue.
+            interaction: The interaction that triggered this view.
+            error: The error with info on why the name is invalid.
         """
 
         super().__init__()
-        self.creator = creator
-        self.errant_parameter = errant_parameter
 
-    @ui.button(label='Retry', style=discord.ButtonStyle.secondary)
-    async def retry(self,
-                    interaction: discord.Interaction,
-                    _: ui.Button) -> None:
+        self.interaction = interaction
+        self.error: InvalidTimelapseNameError = error
+
+        # The number of consecutive times the user has given an invalid name
+        # with the same problem
+        self.attempt: int = 1
+
+    def embed(self) -> discord.Embed:
         """
-        When the user clicks "retry", send them the original modal.
+        Build an embed that explains that the name is already taken.
+
+        Returns:
+            An embed.
+        """
+
+        # Build a user-friendly message explaining what they did wrong
+
+        if self.error.problem == 'taken' or self.error.problem == 'taken_case':
+            msg = (f"Sorry, there is already a timelapse called "
+                   f"**\"{self.error.name}\"** in the database. You must "
+                   f"choose a unique name to create a timelapse.")
+            if self.error.problem == 'taken_case':
+                msg += ("\n\nDifferent capitalization doesn't count: \"name\" "
+                        "and \"NaMe\" are not sufficiently unique.")
+        elif self.error.problem == 'too_long':
+            name_trunc = utils.trunc(self.error.name, NAME_MAX_LENGTH,
+                                     escape_markdown=True)
+            msg = (f"Sorry, your timelapse name **\"{name_trunc}**\" is too "
+                   f"long. Timelapse names can't be longer than "
+                   f"{NAME_MAX_LENGTH} characters.")
+        elif self.error.problem == 'char':
+            # Explain which characters are allowed. Include the lines about
+            # starting with a letter and not having spaces only if the user
+            # violated those parts
+
+            name_esc = utils.trunc(self.error.name, NAME_MAX_LENGTH,
+                                   escape_markdown=True)
+            msg = (f"Sorry, your timelapse name **\"{name_esc}\"** isn't "
+                   "valid. Names can only use letters, numbers, hyphens, and "
+                   "underscores.")
+            if not self.error.name[0].isalpha():
+                msg = msg[:-1] + ', and they must start with a letter.'
+            if re.search(r'\s', self.error.name):
+                msg += ' Spaces are not allowed.'
+        elif self.error.problem == 'start_char':
+            msg = (f"Sorry, your timelapse name **\"{self.error.name}\"** "
+                   "isn't valid. Names must __start with a letter__ and use "
+                   "only letters, numbers, hyphens, and underscores.")
+        else:
+            raise ValueError(f"Unreachable: problem='{self.error.problem}'")
+
+        # Put the error message in an embed
+        embed = utils.contrived_error_embed(
+            text=msg,
+            title='Error: Invalid Name'
+        )
+
+        # If the user had multiple hyphens/underscores, add a note about that
+        if self.error.is_shortened:
+            embed.add_field(
+                name='Note',
+                value='Multiple consecutive hyphens/underscores '
+                      'are automatically shortened to just one.',
+                inline=False
+            )
+
+        return embed
+
+    async def new_invalid_name(self, error: InvalidTimelapseNameError) -> None:
+        """
+        Call this when the user gives another invalid name.
+
+        Args:
+            error: The new error.
+        """
+
+        if error.problem == self.error.problem:
+            self.attempt += 1
+            cancelled = self.attempt == self.MAX_CONSECUTIVE_ATTEMPTS
+
+            header = (f'Still Invalid (Attempt '
+                      f'{self.attempt}/{self.MAX_CONSECUTIVE_ATTEMPTS})')
+            if error.name == self.error.name:
+                text = "That name is still invalid."
+                if not cancelled:
+                    text += " Please try again with a **new** name."
+            else:
+                self.error = error
+                text = "This name is invalid for the same reason."
+
+            embed = self.embed()
+            embed.add_field(name=header, value=text, inline=False)
+
+            if cancelled:
+                embed.add_field(
+                    name='Max Attempts Reached',
+                    value='Timelapse creation automatically cancelled.',
+                    inline=False
+                )
+                # Disable all buttons
+                for child in self.children:
+                    if hasattr(child, 'disabled'):
+                        child.disabled = True
+
+                # Show embed is disabled
+                # noinspection PyDunderSlots
+                embed.color = settings.DISABLED_ERROR_EMBED_COLOR
+
+                # Stop listening to interactions on this view
+                self.stop()
+        else:
+            # Otherwise, this is a new error
+            self.attempt = 1
+            self.error = error
+            embed = self.embed()
+
+        await self.interaction.edit_original_response(
+            embed=embed, view=self
+        )
+
+    @ui.button(label='Change Name', style=discord.ButtonStyle.primary)
+    async def input_new_name(self,
+                             interaction: discord.Interaction,
+                             _: ui.Button) -> None:
+        """
+        Show a modal prompting the user to enter a new name.
 
         Args:
             interaction: The interaction.
             _: This button.
         """
 
-        # Fill in the values where the user left off, except for whichever
-        # value they messed up on
-        for param_name in ['name', 'directory', 'start_time',
-                           'interval', 'end_condition']:
-            if param_name != self.errant_parameter:
-                param = getattr(self.creator, param_name)
-                param.default = param.value
+        modal = NewNameModal(self)
+        await interaction.response.send_modal(modal)
 
-        # Send the modal again
-        await interaction.response.send_modal(self.creator)
+    @ui.button(label='Cancel', style=discord.ButtonStyle.secondary)
+    async def cancel(self,
+                     interaction: discord.Interaction,
+                     _: ui.Button) -> None:
+        """
+        Cancel creating a timelapse.
+
+        Args:
+            interaction: The interaction.
+            _: This button.
+        """
+
+        self.stop()
+        await interaction.response.defer()  # acknowledge the interaction
+        await self.interaction.delete_original_response()
+
+
+class NewNameModal(ui.Modal, title='Enter a New Name'):
+    # The timelapse name
+    name = ui.TextInput(
+        label='Name',
+        required=True,
+        placeholder='Enter a new, valid name',
+        min_length=1,
+        max_length=NAME_MAX_LENGTH
+    )
+
+    def __init__(self, invalid_name_view: TimelapseInvalidName) -> None:
+        """
+        Initialize this modal, which prompts the user to enter a new name for
+        a timelapse.
+
+        Args:
+            invalid_name_view: The view that spawned this modal.
+        """
+
+        super().__init__()
+        self.invalid_name_view = invalid_name_view
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        """
+        Process the new name, validating it and proceeding to the next stage
+        if the name is good.
+
+        Args:
+            interaction: The interaction.
+        """
+
+        # Defer a response
+        await interaction.response.defer()
+
+        # Validate the user's timelapse name
+        try:
+            validated_name = await validate_name(self.name.value)
+        except InvalidTimelapseNameError as e:
+            await self.invalid_name_view.new_invalid_name(e)
+            return
+
+        # Replace the invalid name view with a new message
+        self.invalid_name_view.stop()
+        await self.invalid_name_view.interaction.edit_original_response(
+            content=f'Creating {validated_name}'
+        )
 
 
 async def setup(bot: GphotoBot):

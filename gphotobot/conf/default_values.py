@@ -135,6 +135,14 @@ ERROR_EMBED_COLOR = dc.DefaultConfigEntry(
     expected='Expected a color hex code'
 )
 
+# The color of embeds with error messages that have been disabled
+DISABLED_ERROR_EMBED_COLOR = dc.DefaultConfigEntry(
+    section='messages',
+    default=Color(0x40191b),
+    cast_func=dc.to_color,
+    expected='Expected a color hex code'
+)
+
 # The number of lines of traceback to include in error embeds when traceback is
 # enabled. If this is 0, traceback is forcibly disabled.
 ERROR_TRACEBACK_LENGTH = dc.DefaultConfigEntry(

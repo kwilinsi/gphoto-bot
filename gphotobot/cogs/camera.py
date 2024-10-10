@@ -276,6 +276,7 @@ class CameraEditor(ui.View):
         Args:
             camera:
         """
+
         super().__init__()
 
         # The camera being edited
@@ -357,6 +358,7 @@ class CameraEditor(ui.View):
         for child in self.children:
             if hasattr(child, 'disabled'):
                 child.disabled = True
+        self.stop()
 
         # Save the camera's new settings to the database, if any changed
         saved = False
