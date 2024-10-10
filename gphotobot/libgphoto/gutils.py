@@ -1,9 +1,13 @@
+import asyncio
 import logging
+from pathlib import Path
 
 import discord
 from discord.ext import commands
+from PIL import Image
 import gphoto2 as gp
 
+from gphotobot.libgphoto.rotation import Rotation
 from gphotobot.utils import const, utils
 
 _log = logging.getLogger(__name__)
@@ -65,3 +69,32 @@ async def handle_no_camera_error(
     embed = utils.contrived_error_embed('No camera detected',
                                         'Missing Camera')
     await utils.update_interaction(interaction, embed)
+
+
+async def rotate_image(path: Path, rotation: Rotation) -> None:
+    """
+    Rotate the given image in place using Pillow. This is performed
+    asynchronously to avoid blocking.
+
+    Args:
+        path: The path to the image to rotate.
+        rotation: The amount to rotate it.
+    """
+
+    await asyncio.to_thread(_rotate_image_blocking, path, rotation)
+
+
+def _rotate_image_blocking(path: Path, rotation: Rotation) -> None:
+    """
+    Rotate the given image using Pillow in place, overwriting the original
+    file. This is a blocking operation.
+
+    Args:
+        path: The path to the image to rotate.
+        rotation: The amount to rotate it.
+    """
+
+    if rotation != Rotation.DEGREE_0:
+        image = Image.open(path)
+        rotated_image = image.rotate(360 - rotation.value, expand=True)
+        rotated_image.save(path)

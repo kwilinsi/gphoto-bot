@@ -11,8 +11,10 @@ from gphoto2 import GPhoto2Error
 
 from gphotobot.bot import GphotoBot
 from gphotobot.conf import APP_NAME, settings
+from gphotobot.libgphoto.gutils import rotate_image
 from gphotobot.utils import utils
 from gphotobot.libgphoto import gmanager, gutils, NoCameraFound
+from gphotobot.libgphoto.rotation import Rotation
 
 _log = logging.getLogger(__name__)
 
@@ -49,7 +51,7 @@ class Photo(commands.GroupCog,
         # Take a photo
         try:
             gcamera = await gmanager.get_default_camera()
-            path: Path = await gcamera.preview_photo()
+            path, rotation = await gcamera.preview_photo()
         except NoCameraFound:
             await gutils.handle_no_camera_error(interaction)
             return
@@ -69,6 +71,8 @@ class Photo(commands.GroupCog,
         # Add the preview image to the embed
         file = discord.File(path, filename=f'preview.{path.suffix}')
         embed.set_image(url=f'attachment://{file.filename}')
+        if rotation != Rotation.DEGREE_0:
+            embed.set_footer(text=f'(Preview rotated {str(rotation).lower()})')
 
         # Send the embed
         await interaction.followup.send(file=file, embed=embed)

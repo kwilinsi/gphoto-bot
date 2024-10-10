@@ -9,6 +9,7 @@ import re
 from typing import Optional
 
 import gphoto2 as gp
+from discord.app_commands import guilds
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,6 +17,7 @@ from gphotobot.conf import TMP_DATA_DIR, settings
 from gphotobot.sql.models.cameras import Cameras as DBCameras
 from gphotobot.utils import const, utils
 from .rotation import Rotation
+from . import gutils
 
 _log = logging.getLogger(__name__)
 
@@ -465,12 +467,13 @@ class GCamera:
         return info
 
     @retry_if_busy_usb
-    async def preview_photo(self) -> Path:
+    async def preview_photo(self) -> tuple[Path, Rotation]:
         """
         Capture a preview photo.
 
         Returns:
-            Path: The path to the image.
+            tuple[Path, Rotation]: The path to the image, and a rotation value
+            indicating whether the image was rotated.
         """
 
         _log.info(f"Capturing preview photo on '{self.trunc_name()}'...")
@@ -488,4 +491,10 @@ class GCamera:
             await asyncio.to_thread(file.save, str(path))
             _log.debug(f'Saved preview at {path}')
 
-            return path
+            # If necessary, rotate the image
+            rotation = self.get_rotate_preview()
+            if rotation != Rotation.DEGREE_0:
+                _log.debug(f'Rotating preview {rotation.value} degrees')
+                await gutils.rotate_image(path, rotation)
+
+            return path, rotation

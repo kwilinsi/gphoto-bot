@@ -153,6 +153,7 @@ class Manager(commands.GroupCog,
         Args:
             interaction: The interaction.
         """
+
         embed = utils.default_embed(
             title='Source Code',
             description=f'[View source on GitHub]({settings.SOURCE_CODE_LINK})'
