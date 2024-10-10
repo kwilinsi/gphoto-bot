@@ -1,6 +1,7 @@
 from datetime import datetime
 import logging
-from typing import Optional
+from pathlib import Path
+from typing import Callable, Optional
 
 import pytz
 import re
@@ -435,3 +436,35 @@ async def update_interaction(interaction: discord.Interaction[commands.Bot],
         else:
             await msg.edit(content=msg.content if msg else None,
                            embeds=embeds)
+
+
+def get_unique_path(path: Path, condition: Callable[[Path], bool]) -> Path:
+    """
+    Given some path, modify it so that it meets some condition.
+
+    If the path already meets the condition, it is returned unchanged.
+    Otherwise, it is appended with incrementing numbers until it meets that
+    condition. The intended use for this is getting a file/directory that
+    doesn't already exist.
+
+    If the path has a suffix (i.e. a file extension), the incrementing number
+    is placed before that extension.
+
+    Args:
+        path: The original path.
+        condition: The condition that the output path must satisfy. This is a
+        function that accepts and path and returns a boolean indicating whether
+        it's valid.
+
+    Returns:
+        The output path, which may be the same as the input.
+    """
+
+    old: Path = path
+    i: int = 0
+
+    while not condition(path):
+        i += 1
+        path = old.parent / (old.stem + str(i) + old.suffix)
+
+    return path

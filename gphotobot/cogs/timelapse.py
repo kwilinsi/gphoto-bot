@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 import re
 from typing import Literal
 
@@ -90,6 +91,44 @@ async def validate_name(name: str) -> str:
     return n
 
 
+def determine_default_directory(name: str) -> Path:
+    """
+    Given a timelapse name, pick a default directory in which to store its
+    pictures. The directory is not created, but it may already exist. However,
+    if it does exist, it's guaranteed to be empty.
+
+    Args:
+        name: The name of the timelapse.
+
+    Returns:
+        The path to the automatically chosen directory.
+    """
+
+    root: Path = settings.DEFAULT_TIMELAPSE_ROOT_DIRECTORY
+
+    # If the timelapse root doesn't exist, it's guaranteed that 'root / name'
+    # doesn't have anything in it
+    if not root.exists():
+        return root / name
+
+    # This shouldn't ever happen, but it's possible that the default timelapse
+    # root dir was created as a file since the program started
+    new: Path = utils.get_unique_path(root, lambda p: not p.is_file())
+    if new != root:
+        _log.warning(f"The default timelapse directory is a file: '{root}'. "
+                     f"Changing it to '{new}'")
+        settings.DEFAULT_TIMELAPSE_ROOT_DIRECTORY = new
+        root = new
+
+    # Try using the timelapse name as a directory name. If that doesn't work,
+    # keep adding numbers to it until it does.
+    return utils.get_unique_path(
+        root / name,
+        lambda p: not p.exists() or  # Either doesn't exist, or
+                  (p.is_dir() and not any(p.iterdir()))  # empty directory
+    )
+
+
 class Timelapse(commands.Cog):
     def __init__(self, bot: GphotoBot):
         self.bot: GphotoBot = bot
@@ -167,7 +206,9 @@ class Timelapse(commands.Cog):
             return
 
         # Create a new timelapse
-        await interaction.followup.send(content=f'Creating {validated_name}')
+        view = TimelapseCreator(interaction, validated_name)
+        await view.refresh_display()
+        # await interaction.followup.send(embed=view.embed(), view=view)
 
     @app_commands.command(description='Show all active timelapses',
                           extras={'defer': True})
@@ -379,7 +420,8 @@ class TimelapseInvalidName(ui.View):
             embed=embed, view=self
         )
 
-    @ui.button(label='Change Name', style=discord.ButtonStyle.primary)
+    @ui.button(label='Change Name', style=discord.ButtonStyle.primary,
+               emoji=settings.EMOJI_EDIT)
     async def input_new_name(self,
                              interaction: discord.Interaction,
                              _: ui.Button) -> None:
@@ -394,7 +436,8 @@ class TimelapseInvalidName(ui.View):
         modal = NewNameModal(self)
         await interaction.response.send_modal(modal)
 
-    @ui.button(label='Cancel', style=discord.ButtonStyle.secondary)
+    @ui.button(label='Cancel', style=discord.ButtonStyle.secondary,
+               emoji=settings.EMOJI_CANCEL)
     async def cancel(self,
                      interaction: discord.Interaction,
                      _: ui.Button) -> None:
@@ -442,7 +485,8 @@ class NewNameModal(ui.Modal, title='Enter a New Name'):
             interaction: The interaction.
         """
 
-        # Defer a response
+        # Defer a response, as we'll be editing an existing message rather than
+        # sending a new one
         await interaction.response.defer()
 
         # Validate the user's timelapse name
@@ -452,10 +496,94 @@ class NewNameModal(ui.Modal, title='Enter a New Name'):
             await self.invalid_name_view.new_invalid_name(e)
             return
 
-        # Replace the invalid name view with a new message
+        # Disable the invalid name view, as it's no longer needed
         self.invalid_name_view.stop()
-        await self.invalid_name_view.interaction.edit_original_response(
-            content=f'Creating {validated_name}'
+
+        # Replace the error message with the creator panel
+        creator_view = TimelapseCreator(self.invalid_name_view.interaction,
+                                        validated_name)
+        await creator_view.refresh_display()
+
+
+class TimelapseCreator(ui.View):
+    def __init__(self, interaction: discord.Interaction, name: str):
+        """
+        Create a new view for helping the user make a timelapse.
+
+        Args:
+            interaction: The interaction that led to this view. This is used to
+            get the original message to edit it as changes are made.
+            name: The already-validated name of the timelapse.
+        """
+
+        super().__init__()
+        self.interaction = interaction
+        self.name = name
+        self.user: discord.User | discord.Member = interaction.user
+        self.directory = determine_default_directory(name)
+
+    async def refresh_display(self) -> None:
+        """
+        Edit the original interaction response message, updating it with this
+        view and embed.
+        """
+
+        await self.interaction.edit_original_response(
+            embed=self.build_embed(), view=self
+        )
+
+    def build_embed(self) -> discord.Embed:
+        """
+        Construct an embed with the info about this timelapse. This embed is
+        associated with the buttons in this view.
+
+        Returns:
+            The embed.
+        """
+
+        # If the directory is over 50 characters, put it on its own line
+        if len(str(self.directory)) > 50:
+            directory = f'\n`{self.directory}`'
+        else:
+            directory = f' `{self.directory}`'
+
+        embed = utils.default_embed(
+            title='Create a Timelapse',
+            description=f"**Name:** {self.name}\n"
+                        f"**Creator:** {self.user.mention}\n"
+                        f"**Directory:**{directory}"
+        )
+
+        return embed
+
+    @ui.button(label='Done', style=discord.ButtonStyle.success,
+               emoji=settings.EMOJI_DONE_CHECK, row=0)
+    async def done(self,
+                   interaction: discord.Interaction,
+                   button: ui.Button) -> None:
+        button.label = 'Start'
+        await interaction.response.send_message(content='Done!',
+                                                ephemeral=True)
+        await self.refresh_display()
+
+    @ui.button(label='Info', style=discord.ButtonStyle.primary,
+               emoji=settings.EMOJI_INFO, row=0)
+    async def info(self,
+                   interaction: discord.Interaction,
+                   _: ui.Button) -> None:
+        await interaction.response.send_message(
+            content='This is some info on timelapses!',
+            ephemeral=True
+        )
+
+    @ui.button(label='Cancel', style=discord.ButtonStyle.danger,
+               emoji=settings.EMOJI_CANCEL, row=0)
+    async def cancel(self,
+                     interaction: discord.Interaction,
+                     _: ui.Button) -> None:
+        await interaction.response.send_message(
+            content='Cancelling!',
+            ephemeral=True
         )
 
 

@@ -184,6 +184,42 @@ GPHOTO_RETRY_DELAY = dc.DefaultConfigEntry(
 
 ################################################################################
 
+# The emoji for use in a Done/Confirm button
+# Recommended custom emoji: https://fonts.google.com/icons?selected=Material+Symbols+Outlined:check_circle:FILL@0;wght@300;GRAD@200;opsz@24&icon.query=check&icon.size=24&icon.color=%23edeff2
+EMOJI_DONE_CHECK = dc.DefaultConfigEntry(
+    section='emoji',
+    cast_func=dc.to_nullable_string,
+    default=None
+)
+
+# The emoji for use in an Info button
+# Recommended custom emoji: https://fonts.google.com/icons?selected=Material+Symbols+Outlined:info:FILL@0;wght@300;GRAD@200;opsz@24&icon.query=info&icon.size=24&icon.color=%23edeff2
+EMOJI_INFO = dc.DefaultConfigEntry(
+    section='emoji',
+    cast_func=dc.to_nullable_string,
+    default='ℹ'
+)
+
+# The emoji for use in a Cancel/Close button. Note that this usually appears on
+# top of a red button, which makes it difficult, as Discord doesn't have a white
+# X emoji. Use None to disable the emoji (as is default).
+# Recommended custom emoji: https://fonts.google.com/icons?selected=Material+Symbols+Outlined:cancel:FILL@0;wght@300;GRAD@200;opsz@24&icon.query=canc&icon.size=24&icon.color=%23edeff2
+EMOJI_CANCEL = dc.DefaultConfigEntry(
+    section='emoji',
+    cast_func=dc.to_nullable_string,
+    default=None
+)
+
+# The emoji for use in an Edit/Change/Modify button
+# Recommended custom emoji: https://fonts.google.com/icons?selected=Material+Symbols+Outlined:edit:FILL@0;wght@300;GRAD@200;opsz@24&icon.query=edit&icon.size=24&icon.color=%23edeff2
+EMOJI_EDIT = dc.DefaultConfigEntry(
+    section='emoji',
+    cast_func=dc.to_nullable_string,
+    default=None
+)
+
+################################################################################
+
 SOURCE_CODE_LINK = dc.DefaultConfigEntry(
     section='miscellaneous',
     default='https://github.com/kwilinsi/gphoto-bot',

@@ -90,6 +90,33 @@ class DefaultConfigEntry:
             return str(value)
 
 
+def to_nullable_string(s: Optional[str]) -> Optional[str]:
+    """
+    Take a string and detect whether it is "None" (or similar). If so, return
+    None. Otherwise, just return the input string unmodified.
+
+    This recognizes the following inputs as None. Note that all comparisons are
+    case-insensitive and ignore leading and trailing whitespace:
+
+    - None (not a string)
+    - 'none'
+    - 'null'
+    - 'nil'
+    - '' (an empty string)
+
+    Args:
+        s: The input string.
+
+    Returns:
+        Either the input string or None.
+    """
+
+    if s is None or s.lower().strip() in ('none', 'null', 'nil', ''):
+        return None
+    else:
+        return s
+
+
 def to_log_level(s: str) -> int:
     """
     Cast a log level string to the appropriate integer. If the string
