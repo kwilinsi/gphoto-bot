@@ -1,19 +1,25 @@
+from typing import Optional
+
+
 class ValidationError(Exception):
     """
     This exception is thrown when validating user input. It contains a message
-    that is intended to be shown to the user.
+    that is intended for the user.
     """
 
-    def __init__(self, attribute, message, *args):
+    def __init__(self,
+                 *args,
+                 attr: Optional[str] = None,
+                 msg: Optional[str] = None):
         """
         Initialize a validation error.
 
         Args:
-            attribute: The name of the attribute that failed validation.
-            message: The message to share with the user.
             *args: Args to pass to Exception().
+            attr: The name of the attribute that failed validation.
+            msg: The message to share with the user.
         """
 
         super().__init__(*args)
-        self.message = message
-        self.attribute = attribute
+        self.attr: Optional[str] = attr
+        self.msg: Optional[str] = msg

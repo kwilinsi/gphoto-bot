@@ -218,6 +218,126 @@ EMOJI_EDIT = dc.DefaultConfigEntry(
     default=None
 )
 
+# The emoji for use in a button to set/change a directory
+# Recommended custom emoji: https://fonts.google.com/icons?selected=Material+Symbols+Outlined:folder_open:FILL@0;wght@300;GRAD@200;opsz@24&icon.query=file&icon.size=24&icon.color=%23edeff2
+EMOJI_DIRECTORY = dc.DefaultConfigEntry(
+    section='emoji',
+    cast_func=dc.to_nullable_string,
+    default='📁'
+)
+
+# The emoji for setting a timelapse interval
+# Recommended custom emoji: https://fonts.google.com/icons?selected=Material+Symbols+Outlined:timelapse:FILL@0;wght@300;GRAD@200;opsz@24&icon.query=time&icon.size=24&icon.color=%23edeff2
+EMOJI_TIME_INTERVAL = dc.DefaultConfigEntry(
+    section='emoji',
+    cast_func=dc.to_nullable_string,
+    default='⏱️'
+)
+
+# The emoji for picking a camera
+# Recommended custom emoji: https://fonts.google.com/icons?selected=Material+Symbols+Outlined:photo_camera:FILL@0;wght@300;GRAD@200;opsz@24&icon.query=camera&icon.size=24&icon.color=%23edeff2
+EMOJI_CAMERA = dc.DefaultConfigEntry(
+    section='emoji',
+    cast_func=dc.to_nullable_string,
+    default=None
+)
+
+# The emoji for setting a start/end time
+# Recommended custom emoji: https://fonts.google.com/icons?selected=Material+Symbols+Outlined:schedule:FILL@0;wght@300;GRAD@200;opsz@24&icon.query=time&icon.size=24&icon.color=%23edeff2
+EMOJI_SET_RUNTIME = dc.DefaultConfigEntry(
+    section='emoji',
+    cast_func=dc.to_nullable_string,
+    default='🕓'
+)
+
+# The emoji for changing an existing start/end time
+# Recommended custom emoji: https://fonts.google.com/icons?selected=Material+Symbols+Outlined:update:FILL@0;wght@300;GRAD@200;opsz@24&icon.query=time&icon.size=24&icon.color=%23edeff2
+EMOJI_CHANGE_TIME = dc.DefaultConfigEntry(
+    section='emoji',
+    cast_func=dc.to_nullable_string,
+    default='🕓'
+)
+
+# The emoji for creating a timelapse schedule
+# Recommended custom emoji: https://fonts.google.com/icons?selected=Material+Symbols+Outlined:calendar_month:FILL@0;wght@300;GRAD@200;opsz@24&icon.query=schedule&icon.size=24&icon.color=%23edeff2
+EMOJI_CREATE_SCHEDULE = dc.DefaultConfigEntry(
+    section='emoji',
+    cast_func=dc.to_nullable_string,
+    default='🗓️'
+)
+
+# The emoji for removing a timelapse schedule
+# Recommended custom emoji: https://fonts.google.com/icons?selected=Material+Symbols+Outlined:calendar_add_on:FILL@0;wght@300;GRAD@200;opsz@24&icon.query=schedule&icon.size=24&icon.color=%23edeff2
+EMOJI_ADD_SCHEDULE = dc.DefaultConfigEntry(
+    section='emoji',
+    cast_func=dc.to_nullable_string,
+    default=None
+)
+
+# The emoji for editing an existing timelapse schedule
+# Recommended custom emoji: https://fonts.google.com/icons?selected=Material+Symbols+Outlined:edit_calendar:FILL@0;wght@300;GRAD@200;opsz@24&icon.query=schedule&icon.size=24&icon.color=%23edeff2
+EMOJI_EDIT_SCHEDULE = dc.DefaultConfigEntry(
+    section='emoji',
+    cast_func=dc.to_nullable_string,
+    default='🗓️'
+)
+
+# The emoji for removing a timelapse schedule
+# Recommended custom emoji: https://fonts.google.com/icons?selected=Material+Symbols+Outlined:event_busy:FILL@0;wght@300;GRAD@200;opsz@24&icon.query=calendar&icon.size=24&icon.color=%23edeff2
+EMOJI_REMOVE_SCHEDULE = dc.DefaultConfigEntry(
+    section='emoji',
+    cast_func=dc.to_nullable_string,
+    default=None
+)
+
+# The emoji for removing a timelapse schedule
+# Recommended custom emoji: https://fonts.google.com/icons?selected=Material+Symbols+Outlined:event_available:FILL@0;wght@300;GRAD@200;opsz@24&icon.query=schedule&icon.size=24&icon.color=%23edeff2
+EMOJI_SCHEDULE_DONE = dc.DefaultConfigEntry(
+    section='emoji',
+    cast_func=dc.to_nullable_string,
+    default=None
+)
+
+# The emoji for deleting something
+# Recommended custom emoji: https://fonts.google.com/icons?selected=Material+Symbols+Outlined:delete:FILL@0;wght@300;GRAD@200;opsz@24&icon.query=delete&icon.size=24&icon.color=%23edeff2
+EMOJI_DELETE = dc.DefaultConfigEntry(
+    section='emoji',
+    cast_func=dc.to_nullable_string,
+    default='🗑'
+)
+
+# The emoji for a back button
+# Recommended custom emoji: https://fonts.google.com/icons?selected=Material+Symbols+Outlined:arrow_back:FILL@0;wght@300;GRAD@200;opsz@24&icon.query=back&icon.size=24&icon.color=%23edeff2
+EMOJI_BACK = dc.DefaultConfigEntry(
+    section='emoji',
+    cast_func=dc.to_nullable_string,
+    default='◀'
+)
+
+# The emoji for moving/swapping something around in a list
+# Recommended custom emoji: https://fonts.google.com/icons?selected=Material+Symbols+Outlined:swap_vert:FILL@0;wght@300;GRAD@200;opsz@24&icon.query=arrow&icon.size=24&icon.color=%23edeff2
+EMOJI_MOVE = dc.DefaultConfigEntry(
+    section='emoji',
+    cast_func=dc.to_nullable_string,
+    default=None
+)
+
+# The emoji for moving something up in a list
+# Recommended custom emoji: https://fonts.google.com/icons?selected=Material+Symbols+Outlined:move_up:FILL@0;wght@300;GRAD@200;opsz@24&icon.query=move&icon.size=24&icon.color=%23edeff2
+EMOJI_MOVE_UP = dc.DefaultConfigEntry(
+    section='emoji',
+    cast_func=dc.to_nullable_string,
+    default='⬆'
+)
+
+# The emoji for moving something down in a list
+# Recommended custom emoji: https://fonts.google.com/icons?selected=Material+Symbols+Outlined:move_down:FILL@0;wght@300;GRAD@200;opsz@24&icon.query=move&icon.size=24&icon.color=%23edeff2
+EMOJI_MOVE_DOWN = dc.DefaultConfigEntry(
+    section='emoji',
+    cast_func=dc.to_nullable_string,
+    default='⬇'
+)
+
 ################################################################################
 
 SOURCE_CODE_LINK = dc.DefaultConfigEntry(

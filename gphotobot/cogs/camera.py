@@ -1,7 +1,6 @@
-import asyncio
+from functools import partial
 import logging
 import re
-from collections import defaultdict
 from typing import Callable, Optional, Awaitable
 
 import discord
@@ -14,6 +13,7 @@ from gphotobot.libgphoto import GCamera, gmanager, gutils, NoCameraFound
 from gphotobot.libgphoto.rotation import Rotation
 from gphotobot.sql import async_session_maker
 from gphotobot.utils import const, utils
+from gphotobot.cogs.helper.camera_selector import CameraSelector
 
 _log = logging.getLogger(__name__)
 
@@ -38,7 +38,9 @@ class Camera(commands.GroupCog,
         await interaction.response.defer(thinking=True)
 
         try:
-            camera_list: list[GCamera] = await gmanager.all_cameras()
+            camera_list: list[GCamera] = await gmanager.all_cameras(
+                force_reload=True
+            )
         except NoCameraFound:
             await gutils.handle_no_camera_error(interaction)
             return
@@ -95,17 +97,15 @@ class Camera(commands.GroupCog,
         # The user didn't specify a camera
         if camera is None or not camera.strip():
             try:
-                cameras = await gmanager.all_cameras()
-                camera_dict: dict[str, GCamera] = \
-                    await generate_camera_dict(cameras)
-
-                # Create and send the message
-                view = CameraSelectorView(camera_dict)
-                await interaction.followup.send(
-                    content="Choose a camera from the list below to edit it:",
-                    view=view
+                # Send a camera selector
+                await CameraSelector.create_selector(
+                    callback=partial(CameraEditor.create_editor,
+                                     interaction=interaction),
+                    on_cancel=interaction.delete_original_response,
+                    message="Choose a camera from the list below to edit it:",
+                    interaction=interaction,
+                    edit=False
                 )
-                view.message = await interaction.original_response()
             except NoCameraFound:
                 await gutils.handle_no_camera_error(interaction)
 
@@ -116,13 +116,9 @@ class Camera(commands.GroupCog,
         n = len(matching_cameras)
         camera = utils.trunc(camera, 100)  # truncate excessive user input
 
-        # If there's one match, open the edit window
+        # If there's one match, open an edit window
         if n == 1:
-            view = CameraEditor(matching_cameras[0])
-            await interaction.followup.send(
-                embed=await view.get_embed(), view=view
-            )
-            view.message = await interaction.original_response()
+            await CameraEditor.create_editor(matching_cameras[0], interaction)
             return
 
         # If there aren't any matching cameras, show an error
@@ -144,148 +140,59 @@ class Camera(commands.GroupCog,
                         f"**\"{camera}\"**. Select one from the list below."
         )
 
-        camera_dict: dict[str, GCamera] = \
-            await generate_camera_dict(matching_cameras)
-        view = CameraSelectorView(camera_dict)
-        await interaction.followup.send(embed=embed, view=view)
-        view.message = await interaction.original_response()
-
-
-class CameraSelectorView(ui.View):
-    def __init__(self, cameras: dict[str, GCamera]):
-        super().__init__()
-
-        # TODO prevent exceeding the limit of 25 menu options
-
-        self.cameras: dict[str, GCamera] = cameras
-        options: list[discord.SelectOption] = [
-            discord.SelectOption(label=name)
-            for name in cameras.keys()
-        ]
-
-        # Add the dropdown to this view
-        dropdown = ui.Select(placeholder='Select a camera...',
-                             options=options)
-        dropdown.callback = lambda interation: (
-            self.select_camera(interation, dropdown.values[0])
+        # Send a camera selector
+        await CameraSelector.create_selector(
+            callback=partial(
+                CameraEditor.create_editor, interaction=interaction
+            ),
+            on_cancel=interaction.delete_original_response,
+            message=embed,
+            cameras=await generate_camera_dict(matching_cameras),
+            interaction=interaction,
+            edit=False
         )
-        self.add_item(dropdown)
-
-        # The message using this view
-        self.message: Optional[InteractionMessage] = None
-
-    async def select_camera(self,
-                            interaction: discord.Interaction[commands.Bot],
-                            camera_label: str):
-        await interaction.response.defer()
-
-        camera: GCamera = self.cameras[camera_label]
-        view = CameraEditor(camera)
-        view.message = self.message
-        await self.message.edit(
-            content='',
-            embed=await view.get_embed(),
-            view=view
-        )
-
-
-async def generate_camera_dict(cameras: list[GCamera]) -> \
-        dict[str, GCamera]:
-    """
-    Generate labels for a list of cameras.
-
-    Args:
-        cameras (list[GCamera]): The list of cameras.
-
-        Returns:
-            dict[str, GCamera]: A dictionary pairing labels with cameras.
-        """
-
-    # Group cameras by name
-    cameras_by_name: defaultdict[str, list[GCamera]] = defaultdict(list)
-    for camera in cameras:
-        name = utils.trunc(camera.name, const.SELECT_MENU_LABEL_LENGTH)
-        cameras_by_name[name].append(camera)
-
-    # This dictionary pairs labels with individual GCameras
-    camera_dict: dict[str, GCamera] = {}
-
-    # Assign a name to each camera
-    for name, cams in cameras_by_name.items():
-        await _set_unique_camera_labels(name, cams, camera_dict)
-
-    return camera_dict
-
-
-async def _set_unique_camera_labels(name: str,
-                                    cameras: list[GCamera],
-                                    camera_dict: dict[str, GCamera]):
-    """
-    This is a helper function for generate_camera_dict().
-
-    Given one or more cameras with a particular name, give each of them
-    unique names, and add them to self.cameras.
-
-    Args:
-        name (str): The name.
-        cameras (list[GCamera]): One or more cameras with that name.
-        camera_dict (dict[str, GCamera]): The master dictionary to which
-        to add label:camera pairs.
-    """
-
-    # Easy case: already unique name
-    if len(cameras) == 1:
-        camera_dict[name] = cameras[0]
-        return
-
-    # Harder case: shared names. Find something unique
-    for cam in cameras:
-        # Try using USB ports/device
-        usb = cameras.get_usb_bus_device_str()
-        if usb:
-            new_name = utils.trunc(
-                name, const.SELECT_MENU_LABEL_LENGTH - len(usb) - 7
-            ) + f' (USB {usb})'
-            camera_dict[new_name] = cam
-            continue
-
-        # If that doesn't work, try the serial number
-        serial = await cam.get_serial_number_short()
-        if serial:
-            new_name = utils.trunc(
-                name, const.SELECT_MENU_LABEL_LENGTH - len(serial) - 10
-            ) + f' (Serial {serial})'
-            camera_dict[new_name] = cam
-            continue
-
-        # If that doesn't work, just add an incrementing number
-        for i in range(1, len(cams) + 1):
-            new_name = utils.trunc(
-                name, const.SELECT_MENU_LABEL_LENGTH - len(str(i)) - 4
-            ) + f' (#{i})'
-            if new_name not in camera_dict:
-                camera_dict[new_name] = cam
-                break
 
 
 class CameraEditor(ui.View):
-    def __init__(self, camera: GCamera):
+    def __init__(self, camera: GCamera, interaction: discord.Interaction):
         """
         Initialize a camera editor view on a given camera.
 
         Args:
-            camera:
+            camera: The camera.
+            interaction: The interaction. The original response is edited when
+            refreshing the display.
         """
 
+        _log.debug(f"Creating a CameraEditor view for '{camera}'")
         super().__init__()
 
         # The camera being edited
         self.camera: GCamera = camera
 
         # The message using this view
+        self.interaction: discord.Interaction = interaction
         self.message: Optional[InteractionMessage] = None
 
         self._embed: Optional[discord.Embed] = None
+
+    @classmethod
+    async def create_editor(cls,
+                            camera: GCamera,
+                            interaction: discord.Interaction):
+        """
+        Create a new camera editor for the given camera. The given interaction
+        is used as the base for the view: the response is edited and replaced
+        with the camera editor.
+
+        Args:
+            camera: The selected camera.
+            interaction: This interaction is used to edit original response and
+            replace with the CameraEditor view.
+        """
+
+        # Create a view, and refresh the display to send it
+        await cls(camera, interaction).refresh_display(rebuild=True)
 
     async def get_embed(self, rebuild: bool = False) -> discord.Embed:
         """
@@ -418,7 +325,9 @@ class CameraEditor(ui.View):
             refreshing. Defaults to True.
         """
 
-        await self.message.edit(embed=await self.get_embed(rebuild), view=self)
+        await self.interaction.edit_original_response(
+            embed=await self.get_embed(rebuild), view=self
+        )
 
 
 class RotationModal(ui.Modal, title='Change the Preview Rotation'):
