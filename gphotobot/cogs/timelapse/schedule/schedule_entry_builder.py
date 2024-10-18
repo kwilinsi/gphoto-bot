@@ -139,6 +139,8 @@ class ScheduleEntryBuilder(BaseView):
             header = 'All day long'
         elif self.entry.end_time <= time(hour=12):
             header = 'In the morning'
+        elif self.entry.start_time >= time(hour=17):
+            header = 'In the evening'
         elif self.entry.start_time >= time(hour=12):
             header = 'In the afternoon'
         else:
@@ -331,7 +333,7 @@ class ScheduleEntryBuilder(BaseView):
             self.entry = ScheduleEntry(start_time=start_time,
                                        end_time=end_time)
             utils.set_menu_default(self.menu_rule, self.entry.days.str_rule())
-            self.add_rule_specific_components(self.entry.days)
+            self.components = self.add_rule_specific_components(self.entry.days)
         elif self.entry.start_time == start_time and \
                 self.entry.end_time == end_time:
             # No change
@@ -365,7 +367,7 @@ class ScheduleEntryBuilder(BaseView):
             # Create a default entry, so we can set its interval
             self.entry = ScheduleEntry()
             utils.set_menu_default(self.menu_rule, self.entry.days.str_rule())
-            self.add_rule_specific_components(self.entry.days)
+            self.components = self.add_rule_specific_components(self.entry.days)
 
         # Set button label based on whether an interval is present
         if interval is None:
@@ -486,7 +488,7 @@ class ScheduleEntryBuilder(BaseView):
         self.entry.days = DaysOfWeek(days)
 
         # If all 7 days are selected now, change rule selector to "Every day"
-        if len(entry_days) == 7:
+        if len(days) == 7:
             utils.set_menu_default(self.menu_rule, 'Every day')
 
         # Make sure the currently selected values stay selected
