@@ -39,7 +39,7 @@ class ScheduleEntrySelector(BaseView):
             entries.
         """
 
-        assert len(schedule.entries) >= 2
+        assert len(schedule) >= 2
         super().__init__(interaction, callback, callback_cancel)
 
         self.schedule: Schedule = schedule

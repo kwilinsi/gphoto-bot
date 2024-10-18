@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from operator import concat
 from typing import Optional
 
 from gphotobot.utils import utils
-from gphotobot.utils.days_of_week import (WEEK_DAYS, WEEKENDS,
-                                          DayOfWeek as DayEnum,
-                                          EVERY_DAY_OF_WEEK)
+from gphotobot.utils.days_of_week import (EVERY_DAY_OF_WEEK, WEEK_DAYS,
+                                          WEEKENDS, DayOfWeek as DayEnum)
 from .days import Days
 
 

@@ -1,60 +1,27 @@
 from __future__ import annotations
 
-from collections.abc import Collection, Iterator
 from datetime import date, datetime
 import logging
 
 from gphotobot.utils import const, utils
 from gphotobot.utils.validation_error import ValidationError
-from .change_tracker import ChangeTracker, TracksChanges
+from .change_tracker import TracksChanges
 from .dates import Dates
 from .schedule_entry import ScheduleEntry
 
 _log = logging.getLogger(__name__)
 
 
-class Schedule(TracksChanges, Collection):
+class Schedule(list[ScheduleEntry], TracksChanges):
     def __init__(self):
         """
-        Create a new Schedule. This is a collection of ScheduleEntries that
-        coordinate a timelapse.
+        Create a new Schedule. This is a list of ScheduleEntries that coordinate
+        a timelapse.
         """
 
-        self._entries: ChangeTracker[list[ScheduleEntry]] = ChangeTracker([])
+        super().__init__()
 
-    @property
-    def entries(self) -> list[ScheduleEntry]:
-        return self._entries.current
-
-    @entries.setter
-    def entries(self, value: list[ScheduleEntry]) -> None:
-        self._entries.update(value)
-
-    def __len__(self) -> int:
-        """
-        Get the length of this schedule (i.e. the number of entries it
-        contains).
-
-        Returns:
-            The number of entries.
-        """
-
-        return len(self.entries)
-
-    def __iter__(self) -> Iterator[ScheduleEntry]:
-        """
-        Iterate over the entries in this schedule.
-
-        Returns:
-            The entries in this schedule.
-        """
-
-        return iter(self.entries)
-
-    def __contains__(self, x, /):
-        return x in self.entries
-
-    def add_entry(self, entry: ScheduleEntry) -> None:
+    def append(self, entry: ScheduleEntry) -> None:
         """
         Validate a new entry. If it passes validation, add it to the schedule.
         This tests the following rules:
@@ -109,7 +76,7 @@ class Schedule(TracksChanges, Collection):
 
         # ========== Check for overlapping time on identical Days ==========
 
-        matching_entries = [e for e in self.entries if e.days == entry.days]
+        matching_entries = [e for e in self if e.days == entry.days]
         for e in matching_entries:
             if e.end_time > entry.start_time and e.start_time < entry.end_time:
                 e_s, e_e = (utils.format_time(e.start_time),
@@ -129,17 +96,7 @@ class Schedule(TracksChanges, Collection):
 
         # ========== Validation passed ==========
 
-        self.entries.append(entry)
-
-    def remove_entry(self, index: int) -> None:
-        """
-        Remove an entry specified by its index.
-
-        Args:
-            index: The index of the schedule entry to remove.
-        """
-
-        del self.entries[index]
+        super().append(entry)
 
     def move_entry(self, index: int, move_up: bool) -> None:
         """
@@ -170,9 +127,9 @@ class Schedule(TracksChanges, Collection):
 
         # Move the entry
         destination = index + (-1 if move_up else 1)
-        swap = self.entries[destination]
-        self.entries[destination] = self.entries[index]
-        self.entries[index] = swap
+        swap = self[destination]
+        self[destination] = self[index]
+        self[index] = swap
 
     def get_summary_str(self,
                         max_len: int = const.EMBED_FIELD_VALUE_LENGTH) -> str:
@@ -187,12 +144,12 @@ class Schedule(TracksChanges, Collection):
             A concise summary string.
         """
 
-        l = len(self)
-        if l == 0:
+        n = len(self)
+        if n == 0:
             return '*No entries. Edit the schedule to add some.*'
 
-        if l == 1:
-            header, body = self.entries[0].get_embed_field_strings()
+        if n == 1:
+            header, body = self[0].get_embed_field_strings()
             return f"**{header}**\n{body}"
 
         text = ''
@@ -213,5 +170,4 @@ class Schedule(TracksChanges, Collection):
         return text[1:]
 
     def has_changed(self) -> bool:
-        return self._entries.has_changed() or \
-            any(e.has_changed() for e in self.entries)
+        return any(e.has_changed() for e in self)

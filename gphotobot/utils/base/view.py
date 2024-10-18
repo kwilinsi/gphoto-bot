@@ -53,7 +53,7 @@ class BaseView(ui.View, ABC):
         """
 
         await self.interaction.edit_original_response(
-            embed=await self.build_embed(), view=self
+            content='', embed=await self.build_embed(), view=self
         )
 
     def create_button(self,

@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from copy import copy
 
 
 class TracksChanges(ABC):
@@ -14,8 +15,13 @@ class TracksChanges(ABC):
 
 class ChangeTracker[T](TracksChanges):
     def __init__(self, value: T) -> None:
-        self._original_value = value
         self._current_value = value
+
+        try:
+            self._original_value = copy(value)
+        except TypeError:
+            # Can't shallow copy it
+            self._original_value = value
 
     @property
     def current(self) -> T:
@@ -77,7 +83,7 @@ class ChangeTracker[T](TracksChanges):
             return True
 
         if isinstance(current, TracksChanges):
-            return self._current_value.has_changed()
+            return current.has_changed()
 
         # Check dictionaries separately to check both keys and values
         if isinstance(current, dict):
@@ -98,4 +104,5 @@ class ChangeTracker[T](TracksChanges):
             # It's not iterable
             pass
 
+        # No changes detected
         return False

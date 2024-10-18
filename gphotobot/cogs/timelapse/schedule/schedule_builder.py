@@ -52,9 +52,9 @@ class ScheduleBuilder(BaseView, TracksChanges):
 
         super().__init__(interaction, callback, cancel_callback)
 
-        # Set the initial schedule, making a new one if necessary
-        schedule = Schedule() if schedule is None else schedule
-        self.schedule: ChangeTracker[Schedule] = ChangeTracker(schedule)
+        # Set the initial schedule, making a new one if none was given
+        s = Schedule() if schedule is None else schedule
+        self.schedule: ChangeTracker[Schedule] = ChangeTracker(s)
 
         # Overall runtime conditions. Track changes
         self.start_time: ChangeTracker[Optional[datetime]] = \
@@ -142,17 +142,7 @@ class ScheduleBuilder(BaseView, TracksChanges):
         # Use "Change Overall Runtime" if any of the runtime parameters are set
         self.update_runtime_button()
 
-    async def refresh_display(self) -> None:
-        """
-        Edit the original interaction response message, updating it with this
-        view and embed.
-        """
-
-        await self.interaction.edit_original_response(
-            content='', embed=self.build_embed(), view=self
-        )
-
-    def build_embed(self) -> Embed:
+    async def build_embed(self) -> Embed:
         """
         Construct an embed with the info about this schedule. This embed is
         associated with the buttons in this view.
@@ -249,6 +239,7 @@ class ScheduleBuilder(BaseView, TracksChanges):
         "Change Overall Runtime" based on whether the start time, end time, or
         total frames have been set.
         """
+
         if self.start_time is not None or self.end_time is not None or \
                 self.total_frames is not None:
             self.button_runtime.label = 'Change Overall Runtime'
@@ -272,7 +263,7 @@ class ScheduleBuilder(BaseView, TracksChanges):
             self.start_time.current,
             self.end_time.current,
             self.total_frames.current,
-            self.schedule.current
+            self.schedule
         )
 
         # Stop this view
@@ -298,7 +289,7 @@ class ScheduleBuilder(BaseView, TracksChanges):
         # Define the callback function
         async def callback(entry: Optional[ScheduleEntry]) -> None:
             if entry is not None:
-                self.schedule.current.add_entry(entry)
+                self.schedule.current.append(entry)
 
             # There's at least one entry now: enable the editing buttons
             self.button_edit.disabled = self.button_remove.disabled = False
@@ -389,11 +380,11 @@ class ScheduleBuilder(BaseView, TracksChanges):
             await ScheduleEntryBuilder(
                 self.interaction,
                 callback,
-                self.schedule.current.entries[index]
+                self.schedule.current[index]
             ).refresh_display()
         elif mode == 'remove':
             # Remove the selected entry
-            self.schedule.current.remove_entry(index)
+            del self.schedule.current[index]
 
             # If there aren't any entries now, disable editing buttons
             if len(self.schedule.current) == 0:
