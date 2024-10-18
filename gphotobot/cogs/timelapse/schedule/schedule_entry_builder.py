@@ -330,6 +330,8 @@ class ScheduleEntryBuilder(BaseView):
             # Create a new schedule entry if there wasn't one
             self.entry = ScheduleEntry(start_time=start_time,
                                        end_time=end_time)
+            utils.set_menu_default(self.menu_rule, self.entry.days.str_rule())
+            self.add_rule_specific_components(self.entry.days)
         elif self.entry.start_time == start_time and \
                 self.entry.end_time == end_time:
             # No change
@@ -362,6 +364,8 @@ class ScheduleEntryBuilder(BaseView):
 
             # Create a default entry, so we can set its interval
             self.entry = ScheduleEntry()
+            utils.set_menu_default(self.menu_rule, self.entry.days.str_rule())
+            self.add_rule_specific_components(self.entry.days)
 
         # Set button label based on whether an interval is present
         if interval is None:
