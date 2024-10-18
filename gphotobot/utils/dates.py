@@ -361,11 +361,11 @@ def group_ranges(dates: Sequence[date]) -> list[tuple[date, date | None]]:
         if end + ONE_DAY == dates[i]:
             end = dates[i]
         else:
-            ranges.append((start, end))
+            ranges.append((start, None if start == end else end))
             start = end = dates[i]
 
     # Add the last range
-    ranges.append((start, end))
+    ranges.append((start, None if start == end else end))
 
     return ranges
 
