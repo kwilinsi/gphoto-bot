@@ -516,13 +516,13 @@ class ScheduleEntryBuilder(BaseView):
             # Update the dates
             days = self.entry.days
             assert isinstance(days, Dates)
-            self.entry.days = days.add(dates) if _add else days.remove(dates)
+            days.add(dates) if _add else days.remove(dates)
 
             # Disable/enable buttons based on how many dates there are
-            l = len(self.entry.days)  # noqa
-            self.components[0].disabled = l == Dates.MAX_ALLOWED_DATES
-            self.components[1].disabled = l == 0
-            self.components[2].disabled = l == 0
+            n = len(days)
+            self.components[0].disabled = n == Dates.MAX_ALLOWED_DATES
+            self.components[1].disabled = n == 0
+            self.components[2].disabled = n == 0
 
             await self.refresh_display()
 

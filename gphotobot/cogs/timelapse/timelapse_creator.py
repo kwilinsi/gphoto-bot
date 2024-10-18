@@ -7,13 +7,17 @@ from typing import Optional
 
 from discord import (ButtonStyle, Embed, Interaction, Member,
                      ui, User, utils as discord_utils)
+from sqlalchemy.exc import SQLAlchemyError
 
 from gphotobot.conf import settings
 from gphotobot.libgphoto import GCamera, gmanager, NoCameraFound
+from gphotobot.sql import async_session_maker, Timelapse
 from gphotobot.utils import utils
 from gphotobot.utils.base.view import BaseView
-from gphotobot.cogs.timelapse import timelapse_utils
+from gphotobot.utils.base.confirmation_dialog import ConfirmationDialog
+from gphotobot.utils.validation_error import ValidationError
 from ..helper.camera_selector import CameraSelector
+from ..timelapse import timelapse_utils
 from .change_directory_modal import ChangeDirectoryModal
 from .interval_modal import ChangeIntervalModal
 from .new_name_modal import NewNameModal
@@ -49,16 +53,6 @@ class TimelapseCreator(BaseView):
         self._camera: Optional[GCamera] = camera
         self._directory: Optional[Path] = directory
 
-        # If the camera is already set, change button label
-        if self._camera is not None:
-            utils.get_button(self, 'Set Camera').label = 'Change Camera'
-
-        # Retrieve the directory button, storing a reference to it. Change it
-        # to 'Set Directory' if the directory is currently unset
-        self.button_directory = utils.get_button(self, 'Change Directory')
-        if directory is None:
-            self.button_directory.label = 'Set Directory'
-
         # Default interval
         self._interval: Optional[timedelta] = None
 
@@ -69,6 +63,25 @@ class TimelapseCreator(BaseView):
 
         # A timelapse schedule
         self._schedule: Optional[Schedule] = None
+
+        # Create the button for changing the directory
+        self.button_directory = self.create_button(
+            label='Set Directory' if directory is None else 'Change Directory',
+            style=ButtonStyle.secondary,
+            emoji=settings.EMOJI_DIRECTORY,
+            callback=self.select_button_directory,
+            row=1,
+            auto_defer=False
+        )
+
+        # Create the button for changing the camera
+        self.button_camera = self.create_button(
+            label='Set Camera' if camera is None else 'Change Camera',
+            style=ButtonStyle.secondary,
+            emoji=settings.EMOJI_CAMERA,
+            callback=self.select_button_camera,
+            row=2
+        )
 
         # Create the interval button
         self.button_interval = self.create_button(
@@ -82,8 +95,8 @@ class TimelapseCreator(BaseView):
 
         # Get runtime button
         self.button_runtime = self.create_button(
-            label='Set Runtime' if self._start_time is None and
-                                   self._end_time is None
+            label='Set Runtime' if self.start_time is None and
+                                   self.end_time is None
             else 'Change the Runtime',
             style=ButtonStyle.secondary,
             emoji=settings.EMOJI_SET_RUNTIME,
@@ -94,7 +107,7 @@ class TimelapseCreator(BaseView):
 
         # Create the schedule button
         self.button_schedule = self.create_button(
-            label='Create a Schedule' if self._schedule is None
+            label='Create a Schedule' if self.schedule is None
             else 'Edit the Schedule',
             style=ButtonStyle.secondary,
             emoji=settings.EMOJI_CREATE_SCHEDULE,
@@ -102,7 +115,7 @@ class TimelapseCreator(BaseView):
             row=3
         )
 
-        _log.info(f"Starting a new timelapse creator called {name}")
+        _log.info(f"Starting a new timelapse creator called '{name}'")
 
     @classmethod
     async def create_new(cls,
@@ -139,98 +152,96 @@ class TimelapseCreator(BaseView):
         # Build and send the timelapse creator view
         await cls(interaction, name, camera, directory).refresh_display()
 
-    async def refresh_display(self) -> None:
+    @property
+    def name(self) -> str:
         """
-        Edit the original interaction response message, updating it with this
-        view and embed.
-        """
-
-        await self.interaction.edit_original_response(
-            content='', embed=self.build_embed(), view=self
-        )
-
-    def build_embed(self) -> Embed:
-        """
-        Construct an embed with the info about this timelapse. This embed is
-        associated with the buttons in this view.
+        Get the timelapse name.
 
         Returns:
-            The embed.
+            The name.
         """
 
-        # Escape markdown in the name
-        safe_name = discord_utils.escape_markdown(self._name)
+        return self._name
 
-        # Get the camera name
-        if self._camera is None:
-            camera = '*undefined*'
-        else:
-            camera = utils.trunc(self._camera.name, 75, escape_markdown=True)
+    def safe_name(self) -> str:
+        """
+        Get the timelapse name with markdown characters escaped.
 
-        # Create the base embed
-        embed = utils.default_embed(
-            title='Create a Timelapse',
-            description=f"**Name:** {safe_name}\n"
-                        f"**Creator:** {self.user.mention}\n"
-                        f"**Camera:** {camera}"
-        )
+        Returns:
+            The timelapse name, safe for use in Discord.
+        """
 
-        # Add directory info
-        if self._directory is None:
-            # The directory can never be removed. If missing, it was never
-            # chosen due to being too long
-            directory = '*[Undefined: default path was too long]*'
-        else:
-            directory = f'`{self._directory}`'
+        return discord_utils.escape_markdown(self.name)
 
-        embed.add_field(name='Directory', value=directory, inline=False)
+    async def set_name(self, name: str) -> None:
+        """
+        Set the timelapse name. If the given name is actually new, the display
+        is automatically refreshed.
 
-        # Add interval
-        if self._interval is None:
-            interval = '*Undefined*'
-        else:
-            interval = utils.format_duration(self._interval,
-                                             always_decimal=True)
+        If the previous directory was derived from the previous name, this has
+        the side effect of changing the directory too (if possible).
 
-        embed.add_field(name='Capture Interval', value=interval, inline=False)
+        Args:
+            name: The new name.
+        """
 
-        # Add runtime info
-        runtime_text = timelapse_utils.generate_embed_runtime_text(
-            self._start_time,
-            self._end_time,
-            self._total_frames
-        )
-        embed.add_field(name='Runtime', value=runtime_text, inline=False)
+        # Do nothing if the name didn't change
+        if self.name == name:
+            return
 
-        # Add schedule
-        if self._schedule is not None:
-            embed.add_field(
-                name='Schedule',
-                value=self._schedule.get_summary_str(),
-                inline=False
-            )
+        _log.debug(f"Changing timelapse name from '{self.name}' to '{name}'")
 
-        # Return finished embed
-        return embed
+        # If the previous directory, is unset or uses the previous name, try to
+        # change it based on the new name
+        if self.directory is None or \
+                self.name.lower() in self.directory.name.lower():
+            await self.set_directory(determine_default_directory(name),
+                                     refresh=False)
 
-    async def set_directory(self, directory: Path) -> None:
+        # Change the name
+        self._name = name
+
+        # Refresh the display
+        await self.refresh_display()
+
+    @property
+    def directory(self) -> Optional[Path]:
+        return self._directory
+
+    async def set_directory(self, directory: Optional[Path],
+                            refresh: bool = True) -> None:
         """
         Change the directory. If the directory is currently unset, this has the
         side effect of renaming the "Set Directory" button back to "Change
         Directory".
 
-        If the directory changes, this also refreshes the display.
-
         Args:
-            directory: The new directory.
+            directory: The new directory. If this is None, nothing happens. The
+            directory is not cleared.
+            refresh: Whether to refresh the display if the name changes. This
+            should always be done unless you're about to refresh it anyway.
+            Defaults to True.
         """
 
-        if self._directory is None:
+        # Do nothing if the input is None
+        if directory is None:
+            return
+
+        # Update the directory
+        if self.directory is None:
             self.button_directory.label = 'Change Directory'
             self._directory = directory
-        elif self._directory != directory:
+            _log.debug(f"Updated directory from None to '{directory}'")
+        elif self.directory != directory:
+            _log.debug(f"Updated directory from '{self.directory}' "
+                       f"to '{directory}'")
             self._directory = directory
-            await self.refresh_display()
+            if refresh:
+                await self.refresh_display()
+
+    @property
+    def interval(self) -> Optional[timedelta]:
+        return self._interval
 
     async def set_interval(self, interval: timedelta) -> None:
         """
@@ -243,14 +254,26 @@ class TimelapseCreator(BaseView):
             interval: The new interval.
         """
 
-        if self._interval is None:
+        if self.interval is None:
             utils.get_button(self, 'Set Interval').label = \
                 'Change Interval'
-        elif self._interval == interval:
+        elif self.interval == interval:
             return
 
         self._interval = interval
         await self.refresh_display()
+
+    @property
+    def start_time(self) -> Optional[datetime]:
+        return self._start_time
+
+    @property
+    def end_time(self) -> Optional[datetime]:
+        return self._end_time
+
+    @property
+    def total_frames(self) -> Optional[int]:
+        return self._total_frames
 
     async def set_runtime(self,
                           start_time: Optional[datetime],
@@ -277,13 +300,101 @@ class TimelapseCreator(BaseView):
             self.button_runtime.emoji = settings.EMOJI_SET_RUNTIME
 
         # Update and display the configuration if it changed
-        if total_frames != self._total_frames or \
-                start_time != self._start_time or \
-                end_time != self._end_time:
+        if total_frames != self.total_frames or \
+                start_time != self.start_time or \
+                end_time != self.end_time:
             self._start_time = start_time
             self._end_time = end_time
             self._total_frames = total_frames
             await self.refresh_display()
+
+    @property
+    def camera(self) -> Optional[GCamera]:
+        return self._camera
+
+    async def set_camera(self, camera: GCamera) -> None:
+        """
+        Set the camera, and refresh the display.
+
+        Args:
+            camera: The new camera.
+        """
+
+        self._camera = camera
+        self.button_camera = 'Change Camera'
+        await self.refresh_display()
+
+    @property
+    def schedule(self) -> Optional[Schedule]:
+        """
+        Get the timelapse schedule, if set.
+
+        Returns:
+            The schedule.
+        """
+
+        return self._schedule
+
+    async def build_embed(self) -> Embed:
+        """
+        Construct an embed with the info about this timelapse. This embed is
+        associated with the buttons in this view.
+
+        Returns:
+            The embed.
+        """
+
+        # Get the camera name
+        if self.camera is None:
+            camera = '*undefined*'
+        else:
+            camera = utils.trunc(self.camera.name, 75, escape_markdown=True)
+
+        # Create the base embed
+        embed = utils.default_embed(
+            title='Create a Timelapse',
+            description=f"**Name:** {self.safe_name()}\n"
+                        f"**Creator:** {self.user.mention}\n"
+                        f"**Camera:** {camera}"
+        )
+
+        # Add directory info
+        if self.directory is None:
+            # The directory can never be removed. If missing, it was never
+            # chosen due to being too long
+            directory = '*[Undefined: default path was too long]*'
+        else:
+            directory = f'`{self.directory}`'
+
+        embed.add_field(name='Directory', value=directory, inline=False)
+
+        # Add interval
+        if self.interval is None:
+            interval = '*Undefined*'
+        else:
+            interval = utils.format_duration(self.interval,
+                                             always_decimal=True)
+
+        embed.add_field(name='Capture Interval', value=interval, inline=False)
+
+        # Add runtime info
+        runtime_text = timelapse_utils.generate_embed_runtime_text(
+            self.start_time,
+            self.end_time,
+            self.total_frames
+        )
+        embed.add_field(name='Runtime', value=runtime_text, inline=False)
+
+        # Add schedule
+        if self.schedule is not None:
+            embed.add_field(
+                name='Schedule',
+                value=self.schedule.get_summary_str(),
+                inline=False
+            )
+
+        # Return finished embed
+        return embed
 
     @ui.button(label='Create', style=ButtonStyle.success,
                emoji=settings.EMOJI_DONE_CHECK, row=0)
@@ -299,10 +410,87 @@ class TimelapseCreator(BaseView):
             _: This button.
         """
 
-        await interaction.response.send_message(content='Create!',
-                                                ephemeral=True)
-        await self.refresh_display()
+        await interaction.response.defer()
+
+        # Validate the timelapse values to catch any problems
+        try:
+            self.validate()
+        except ValidationError as e:
+            await interaction.followup.send(embed=utils.contrived_error_embed(
+                title=f"Error: Invalid {e.attr}",
+                text=e.msg
+            ), ephemeral=True)
+            return
+
+        try:
+            async with async_session_maker() as session, session.begin():
+                session.add(await self.to_db())
+        except SQLAlchemyError as e:
+            await interaction.followup.send(embed=utils.error_embed(
+                e,
+                text='Failed to save this timelapse to the database. Please '
+                     'try again later or report a bug.'
+            ))
+            return
+
+        await ConfirmationDialog(
+            interaction=self.interaction,
+            title='Success!',
+            description=f"Created the new timelapse **{self.safe_name()}** "
+                        f"and saved it to the database."
+        ).refresh_display()
         self.stop()
+
+    async def to_db(self) -> Timelapse:
+        """
+        Construct a database record for this timelapse.
+
+        This does not attempt to validate any parameters.
+
+        Returns:
+            The new timelapse record to send to the database.
+        """
+
+        return Timelapse(
+            camera_id=await self.camera.get_db_id(),
+            name=self.name,
+            user_id=self.user.id,
+            directory=str(self.directory),
+            start_time=self.start_time,
+            end_time=self.end_time,
+            interval=self.interval.total_seconds(),
+            total_frames=self.total_frames,
+            schedule_entries=self.schedule.to_db()
+        )
+
+    def validate(self) -> None:
+        """
+        Validate the input to this timelapse. Run this right before saving to
+        the database to catch any last errors.
+
+        Raises:
+            ValidationError: If there is any problem with the timelapse. This
+            includes a user-friendly error message.
+        """
+
+        if self.directory is None:
+            raise ValidationError(
+                attr='Directory',
+                msg='You must specify a directory for saving timelapse photos.'
+            )
+
+        if self.camera is None:
+            raise ValidationError(
+                attr='Camera',
+                msg='You must specify a camera to take the timelapse photos.'
+            )
+
+        if self.interval is None:
+            raise ValidationError(
+                attr='Interval',
+                msg='You must specify an overall interval between capturing '
+                    'photos.'
+            )
 
     @ui.button(label='Info', style=ButtonStyle.primary,
                emoji=settings.EMOJI_INFO, row=0)
@@ -365,55 +553,37 @@ class TimelapseCreator(BaseView):
             await i.followup.send(embed=embed, ephemeral=True)
 
         await interaction.response.send_modal(NewNameModal(
-            self.change_name,
+            self.set_name,
             False,
             on_error
         ))
 
-    @ui.button(label='Change Directory', style=ButtonStyle.secondary,
-               emoji=settings.EMOJI_DIRECTORY, row=1)
-    async def select_button_directory(self,
-                                      interaction: Interaction,
-                                      _: ui.Button) -> None:
+    async def select_button_directory(self, interaction: Interaction) -> None:
         """
         Open a modal prompting to the user to change the timelapse directory.
 
         Args:
             interaction: The interaction.
-            _: This button.
         """
 
         await interaction.response.send_modal(ChangeDirectoryModal(
             self.set_directory,
-            self._directory
+            self.directory
         ))
 
-    @ui.button(label='Set Camera', style=ButtonStyle.secondary,
-               emoji=settings.EMOJI_CAMERA, row=2)
-    async def select_button__camera(self,
-                                    interaction: Interaction,
-                                    button: ui.Button) -> None:
+    async def select_button_camera(self, interaction: Interaction) -> None:
         """
         Replace the view with one prompting the user to select a camera from
         a dropdown.
 
         Args:
             interaction: The interaction.
-            button: This button.
         """
-
-        await interaction.response.defer()
-
-        # Define the callback that actually changes updates the camera
-        async def callback(camera: GCamera):
-            self._camera = camera
-            button.label = 'Change Camera'
-            await self.refresh_display()
 
         # Send a new camera selector view
         try:
             await CameraSelector.create_selector(
-                callback=callback,
+                callback=self.set_camera,
                 on_cancel=self.refresh_display,
                 message=f"Choose a{'' if self._camera is None else ' new'} "
                         f"timelapse camera from the list below:",
@@ -423,7 +593,7 @@ class TimelapseCreator(BaseView):
                 cancel_danger=False
             )
         except NoCameraFound:
-            _log.warning(f"Failed to get a camera for timelapse '{self._name}'")
+            _log.warning(f"Failed to get a camera for timelapse '{self.name}'")
             embed = utils.contrived_error_embed(
                 'No cameras detected. Please connected a camera to the '
                 'system, and try again.',
@@ -480,62 +650,6 @@ class TimelapseCreator(BaseView):
             self.set_schedule,  # primary callback
             self.refresh_display  # on cancel, just refresh the display
         ).refresh_display()
-
-    @property
-    def name(self) -> str:
-        """
-        Get the timelapse name.
-
-        Returns:
-            The name.
-        """
-
-        return self._name
-
-    async def change_name(self, name: str) -> None:
-        """
-        Change the timelapse name. If the given name is actually new, the
-        display is automatically refreshed.
-
-        If the previous directory was derived from the previous name, this has
-        the side effect of changing the directory too (if possible).
-
-        Args:
-            name: The new name.
-        """
-
-        # Do nothing if the name didn't change
-        if self._name == name:
-            return
-
-        _log.debug(f"Changing timelapse name from '{self._name}' to '{name}'")
-
-        # If the previous directory, is unset or uses the previous name, try to
-        # change it based on the new name
-        if self._directory is None or \
-                self._name.lower() in self._directory.name.lower():
-            new_dir = determine_default_directory(name)
-            if new_dir is not None:
-                _log.debug(f"Updated directory from '{self._directory}' "
-                           f"to '{new_dir}'")
-                self._directory = new_dir
-
-        # Change the name
-        self._name = name
-
-        # Refresh the display
-        await self.refresh_display()
-
-    @property
-    def schedule(self) -> Optional[Schedule]:
-        """
-        Get the timelapse schedule, if set.
-
-        Returns:
-            The schedule.
-        """
-
-        return self._schedule
 
     async def set_schedule(self,
                            start_time: Optional[datetime],

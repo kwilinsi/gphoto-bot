@@ -9,12 +9,11 @@ import re
 from typing import Optional
 
 import gphoto2 as gp
-from discord.app_commands import guilds
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gphotobot.conf import TMP_DATA_DIR, settings
-from gphotobot.sql.models.cameras import Cameras as DBCameras
+from gphotobot.sql import async_session_maker, Camera as DBCameras
 from gphotobot.utils import const, utils
 from .rotation import Rotation
 from . import gutils
@@ -114,8 +113,9 @@ class GCamera:
         self._gp_camera: gp.Camera = gp_camera if gp_camera else gp.Camera()
         self._lock: asyncio.Lock = asyncio.Lock()
 
-        # Record whether this object has been synced with the database
+        # Record the database id and whether it's synced
         self.synced_with_database: bool = False
+        self._database_id: Optional[int] = None
 
         # The serial number is used to sync with the database. If this is None,
         # it means it's not yet known, and we need to query the camera. If this
@@ -326,16 +326,22 @@ class GCamera:
 
         # If no results, add this camera to the database
         if len(result) == 0:
-            session.add(DBCameras(
+            db_camera = DBCameras(
                 name=self.name,
                 address=self.addr,
                 usb_bus=bus,
                 usb_device=device,
                 serial_number=self.serial_number,
                 rotate_preview=rotation.value
-            ))
-            _log.info(f"Adding new camera '{self}' to database")
+            )
+            session.add(db_camera)
+
+            # Flush changes to get the id
+            await session.flush()
+            self._database_id = db_camera.id
             self.synced_with_database = True
+
+            _log.info(f"Adding new camera '{self}' to database")
             return
 
         # Check for multiple results (unexpected). This could maybe happen
@@ -358,18 +364,40 @@ class GCamera:
 
         # Sync any changes with the matching camera
         if len(result) == 1:
-            cam = result[0]
-            cam.name = self.name
-            cam.address = self.addr
-            cam.usb_bus = bus
-            cam.usb_device = device
+            db_camera = result[0]
+            self._database_id = db_camera.id
+            db_camera.name = self.name
+            db_camera.address = self.addr
+            db_camera.usb_bus = bus
+            db_camera.usb_device = device
             if self._rotate_preview is None:
-                self._rotate_preview = Rotation(cam.rotate_preview)
+                self._rotate_preview = Rotation(db_camera.rotate_preview)
             else:
-                cam.rotate_preview = self._rotate_preview.value
+                db_camera.rotate_preview = self._rotate_preview.value
 
         # The camera is now synced
         self.synced_with_database = True
+
+    async def get_db_id(self) -> int:
+        """
+        Get the primary key id of this camera in the database. This is often
+        cached, but if not, it will issue a SQL request.
+
+        Returns:
+            The primary key id of this camera.
+        """
+
+        if self._database_id is not None:
+            return self._database_id
+
+        _log.info(f"Missing db id for camera '{self}': triggering sync")
+        async with async_session_maker() as session, session.begin():
+            await self.sync_with_database(session)
+
+        if self._database_id is None:
+            raise ValueError(f"Failed to load db id for camera '{self}'")
+        else:
+            return self._database_id
 
     def get_usb_bus_device(self) -> tuple[Optional[int], Optional[int]]:
         """

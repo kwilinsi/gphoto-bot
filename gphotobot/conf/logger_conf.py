@@ -1,6 +1,5 @@
 import coloredlogs
 import logging.handlers
-import os
 from pathlib import Path
 
 from gphotobot.conf import settings, DATA_DIR, APP_NAME

@@ -1,13 +1,14 @@
 from datetime import datetime
 import re
-from typing import Optional
+from typing import Literal, Optional
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Float, select, String
+from sqlalchemy import BigInteger, DateTime, Float, ForeignKey, select, String
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base
+from .cameras import Camera
 
 # The default name format, which is derived from the current date
 DEFAULT_NAME_FORMAT = '%Y-%m-%d'
@@ -21,6 +22,14 @@ class Timelapse(Base):
     __tablename__ = 'Timelapses'
 
     id: Mapped[int] = mapped_column(primary_key=True)
+
+    # Foreign key: many-to-one
+    camera_id: Mapped[int] = mapped_column(ForeignKey(Camera.id))
+    camera: Mapped[Camera] = relationship(
+        back_populates='timelapses'
+    )
+
+    # Attributes
     created_time: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -36,13 +45,13 @@ class Timelapse(Base):
     interval: Mapped[float] = mapped_column(Float())
     frames: Mapped[int] = mapped_column(BigInteger(), default=0)
     total_frames: Mapped[Optional[int]] = mapped_column(BigInteger())
-    is_running: Mapped[bool] = mapped_column(Boolean(), default=False)
-    is_finished: Mapped[bool] = mapped_column(Boolean(), default=False)
+    state: Mapped[Literal['Not Started', 'Running', 'Paused', 'Finished(']] = \
+        mapped_column(String(11), default='Not Started')
 
     # Schedules relationship: one-to-many
     # noinspection PyUnresolvedReferences
     schedule_entries: Mapped[list["ScheduleEntry"]] = relationship(
-        back_populates="timelapse"
+        back_populates='timelapse'
     )
 
 
@@ -57,7 +66,7 @@ async def get_all_active(session: AsyncSession) -> list[Timelapse]:
         list[Timelapse]: The list of all active timelapses.
     """
 
-    stmt = select(Timelapse).where(Timelapse.is_finished == False)
+    stmt = select(Timelapse).where(Timelapse.state != 'Finished')
     result = await session.scalars(stmt)
     return [tl for tl in result]
 

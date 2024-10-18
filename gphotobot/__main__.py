@@ -5,7 +5,7 @@ import asyncio
 import gphoto2 as gp
 
 from .bot import GphotoBot
-from .conf import settings, APP_NAME, logger_conf
+from .conf import settings, logger_conf
 from .libgphoto import gmanager
 from . import sql
 

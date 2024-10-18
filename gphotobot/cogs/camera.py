@@ -6,6 +6,7 @@ from typing import Callable, Optional, Awaitable
 import discord
 from discord import app_commands, ui, InteractionMessage
 from discord.ext import commands
+from gphoto2 import GPhoto2Error
 
 from gphotobot.bot import GphotoBot
 from gphotobot.conf import settings
@@ -13,7 +14,7 @@ from gphotobot.libgphoto import GCamera, gmanager, gutils, NoCameraFound
 from gphotobot.libgphoto.rotation import Rotation
 from gphotobot.sql import async_session_maker
 from gphotobot.utils import const, utils
-from gphotobot.cogs.helper.camera_selector import CameraSelector
+from .helper.camera_selector import CameraSelector, generate_camera_dict
 
 _log = logging.getLogger(__name__)
 

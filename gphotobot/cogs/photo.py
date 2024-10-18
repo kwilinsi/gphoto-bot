@@ -1,7 +1,6 @@
 import asyncio
 from datetime import datetime
 import logging
-from pathlib import Path
 from typing import Optional
 
 import discord
@@ -11,7 +10,6 @@ from gphoto2 import GPhoto2Error
 
 from gphotobot.bot import GphotoBot
 from gphotobot.conf import APP_NAME, settings
-from gphotobot.libgphoto.gutils import rotate_image
 from gphotobot.utils import utils
 from gphotobot.libgphoto import gmanager, gutils, NoCameraFound
 from gphotobot.libgphoto.rotation import Rotation

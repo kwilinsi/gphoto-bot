@@ -34,6 +34,7 @@ class DateSegment:
         # This is a list of dates that are a part of the segment. Each is given
         # as a range from date1 to date2. If the second date is None, then it's
         # just a single date rather than a range.
+
         self.dates: list[tuple[date, date | None]]
 
         # Coerce the given dates into the desired format
@@ -42,6 +43,7 @@ class DateSegment:
         elif isinstance(dates, tuple):
             self.dates = [dates]  # single range (or single date)
         else:
+            self.dates = []
             for d in dates:  # iterable with multiple dates/ranges
                 if isinstance(d, date):
                     self.dates.append((d, None))
@@ -159,7 +161,7 @@ class DateString:
             dates: The dates to parse and format.
         """
 
-        self.dates: tuple[date]
+        self.dates: tuple[date, ...]
         if isinstance(dates, tuple):
             self.dates = dates
         else:
@@ -181,7 +183,7 @@ class DateString:
         if len(self.dates) == 0:
             return segments
         elif len(self.dates) == 1:
-            segments.append(DateSegment(self.dates))
+            segments.append(DateSegment(self.dates[0]))
             return segments
 
         # Identify and merge consecutive dates
@@ -352,6 +354,8 @@ def group_ranges(dates: Sequence[date]) -> list[tuple[date, date | None]]:
     """
 
     ranges: list[tuple[date, date | None]] = []
+
+    # Use a start/end index to build ranges one at a time
     start = end = dates[0]
     for i in range(1, len(dates)):
         if end + ONE_DAY == dates[i]:
@@ -359,6 +363,9 @@ def group_ranges(dates: Sequence[date]) -> list[tuple[date, date | None]]:
         else:
             ranges.append((start, end))
             start = end = dates[i]
+
+    # Add the last range
+    ranges.append((start, end))
 
     return ranges
 

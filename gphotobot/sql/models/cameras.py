@@ -1,9 +1,7 @@
-from email.policy import default
 from typing import Optional
 
-from sqlalchemy import SmallInteger, String, Boolean
-from sqlalchemy.dialects.mysql import TINYINT
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import SmallInteger, String
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base
 
@@ -13,7 +11,7 @@ ADDRESS_MAX_LENGTH = 75
 SERIAL_NUMBER_MAX_LENGTH = 100
 
 
-class Cameras(Base):
+class Camera(Base):
     __tablename__ = 'Cameras'
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -25,3 +23,9 @@ class Cameras(Base):
         String(SERIAL_NUMBER_MAX_LENGTH)
     )
     rotate_preview: Mapped[int] = mapped_column(SmallInteger(), default=False)
+
+    # Timelapse relationship
+    # noinspection PyUnresolvedReferences
+    timelapses: Mapped[list["Timelapse"]] = relationship(
+        back_populates='camera'
+    )

@@ -15,6 +15,32 @@ class Days(ABC):
 
     UNDEFINED = "*Undefined*"
 
+    @classmethod
+    def create_rule_from_db(cls, db_str: str) -> Days:
+        """
+        Create a Days rule from a database string by finding the correct class
+        and calling its from_db() method.
+
+        Args:
+            db_str: The database string representation. This must have been
+            created from the to_db() method of some rule inheriting from Days.
+
+        Returns:
+            A new Days rule of the appropriate type.
+        """
+
+        # Extract the class name: db strings are in the form "ClassName(data)"
+        class_name = db_str.split('(', maxsplit=1)[0]
+
+        # Find the appropriate class
+        for c in cls.__subclasses__():
+            if c.__name__ == class_name:
+                return c.from_db(db_str)
+
+        # Couldn't find a matching class
+        raise ValueError(f"No Days rule class found matching '{class_name}' "
+                         f"for db_str '{db_str}'")
+
     #################### STRING REPRESENTATIONS ####################
 
     @abstractmethod

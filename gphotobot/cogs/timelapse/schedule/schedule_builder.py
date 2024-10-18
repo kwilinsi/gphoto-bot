@@ -30,7 +30,7 @@ class ScheduleBuilder(BaseView, TracksChanges):
                  callback: Callable[
                      [Optional[datetime], Optional[datetime],
                       Optional[int], Optional[Schedule]],
-                     Awaitable
+                     Awaitable[None]
                  ],
                  cancel_callback: Callable[[], Awaitable]) -> None:
         """
@@ -263,7 +263,7 @@ class ScheduleBuilder(BaseView, TracksChanges):
             self.start_time.current,
             self.end_time.current,
             self.total_frames.current,
-            self.schedule
+            self.schedule.current
         )
 
         # Stop this view

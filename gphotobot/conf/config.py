@@ -1,5 +1,6 @@
 from configparser import ConfigParser
 from collections import defaultdict
+import logging
 import os
 from pathlib import Path
 import sys
@@ -7,6 +8,8 @@ import traceback
 
 from .default_config_entry import DefaultConfigEntry
 from . import default_values
+
+_log = logging.getLogger(__name__)
 
 # Move all the defaults into a dictionary
 DEFAULTS: dict[str, DefaultConfigEntry] = {
@@ -150,8 +153,7 @@ class Config:
         msg = (f"Saved the {'current' if non_default else 'default'} "
                f"configuration to '{self.file}'")
         if 'gphotobot.utils.logger' in sys.modules:
-            from gphotobot.conf.logger_conf import log
-            log.info(msg)
+            _log.info(msg)
         else:
             print(msg)
 
@@ -172,8 +174,7 @@ class Config:
         """
 
         if 'gphotobot.utils.logger' in sys.modules:
-            from gphotobot.conf.logger_conf import log
-            log.error(msg, stack_info=True, stacklevel=3)
+            _log.error(msg, stack_info=True, stacklevel=3)
             sys.exit(1)
         else:
             traceback.print_stack()

@@ -4,7 +4,6 @@ import logging
 from typing import Literal
 
 import discord
-from discord import Message
 from discord.ext import commands
 
 from .conf import settings
@@ -19,10 +18,9 @@ class GphotoBot(commands.Bot):
         Initialize the bot.
 
         Args:
-            sync (bool): Control whether to sync application commands.
-            If 'dev', commands are synced with the development
-            server. If 'global', they are synced with all servers.
-            Otherwise, no syncing takes place.
+            sync_scope: Control whether to sync application commands. If 'dev',
+            'dev', commands are synced with the development server. If 'global',
+            they are synced with all servers. Otherwise, no syncing takes place.
         """
 
         super().__init__(

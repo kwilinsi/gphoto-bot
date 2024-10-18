@@ -38,19 +38,12 @@ class TimelapseCog(commands.Cog):
 
         TIME_FORMAT = '%Y-%m-%d %I:%M:%S %p'
 
-        # List whether it's running/finished/active
-        if timelapse.is_running:
-            info = f'**Running:** YES'
-        elif timelapse.is_finished:
-            info = f'**Finished:** YES'
-        else:
-            info = f'**Active:** YES\n**Finished:** NO'
-
         # List basic known info
-        info += (f'\n**User ID:** {timelapse.user_id}'
-                 f'\n**Directory:** `{timelapse.directory}`'
-                 f'\n**Frames:** {timelapse.frames}'
-                 f'\n**Interval:** {utils.format_duration(timelapse.interval)}')
+        info = (f'**State:** {timelapse.state}'
+                f'\n**User ID:** {timelapse.user_id}'
+                f'\n**Directory:** `{timelapse.directory}`'
+                f'\n**Frames:** {timelapse.frames}'
+                f'\n**Interval:** {utils.format_duration(timelapse.interval)}')
 
         # Add the start time if it's known
         if timelapse.start_time:

@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 from datetime import time, timedelta
 from typing import Optional
 
+from gphotobot.sql import ScheduleEntry as SQLScheduleEntry
 from gphotobot.utils import const, utils
 from .change_tracker import ChangeTracker, TracksChanges
 from .days import Days
@@ -51,6 +54,25 @@ class ScheduleEntry(TracksChanges):
         self._end_time: ChangeTracker[time] = ChangeTracker(end_time)
         self._config: ChangeTracker[dict[str, any]] = ChangeTracker(
             {} if config is None else config
+        )
+
+    @classmethod
+    def from_db(cls, record: SQLScheduleEntry) -> ScheduleEntry:
+        """
+        Construct a new schedule entry from a database record.
+
+        Args:
+            record: A SQL database record.
+
+        Returns:
+            A new schedule entry.
+        """
+
+        return cls(
+            days=Days.from_db(record.days),
+            start_time=record.start_time,
+            end_time=record.end_time,
+            config=record.config
         )
 
     @property
@@ -214,3 +236,82 @@ class ScheduleEntry(TracksChanges):
         """
 
         return self.config.get('capture_interval', None)
+
+    def config_to_db(self) -> Optional[str]:
+        """
+        Get a string that contains the config record ready for use in the
+        database. This must be reversible with config_from_db(). Ideally, this
+        is human-readable for someone accessing the database.
+
+        Returns:
+            A string storing the config information, or None if self.config is
+            None or empty.
+        """
+
+        if not self.config:
+            return None
+
+        str_mapping: dict[str, str] = {}
+
+        # Build the string with one entry at a time
+        for key, value in self.config.items():
+            # Add the value based on what key it is, as values will have
+            # different data types
+            if key == 'capture_interval':
+                str_mapping[key] = utils.format_duration(value)
+            elif isinstance(value, str):
+                # Some other string
+                str_mapping[key] = (value.encode('unicode_escape')
+                                    .decode("utf-8"))
+            else:
+                # Some other value. This probably should never be reached
+                str_mapping[key] = (repr(value).encode('unicode_escape')
+                                    .decode("utf-8"))
+
+        return '\n'.join(f"{k}: {v}" for k, v in str_mapping.items())
+
+    @staticmethod
+    def config_from_db(config_str: Optional[str]) -> Optional[dict[str, any]]:
+        """
+        Given a string created with config_to_db() that encodes the custom
+        configuration for a schedule entry in the database, parse it into a
+        config dict.
+
+        Args:
+            config_str: The database config string to parse.
+
+        Returns:
+            The parsed config dictionary, or None if the input string is None.
+        """
+
+        if not config_str:
+            return None
+
+        config = {}
+        for line in config_str.split('\n'):
+            key, value = line.split(': ', 1)
+
+            if key == 'capture_interval':
+                # capture_interval is a timedelta
+                config[key] = utils.parse_time_delta(value)
+            else:
+                # Some other value
+                config[key] = value.encode('utf-8').decode('unicode_escape')
+
+        return config
+
+    def to_db(self) -> SQLScheduleEntry:
+        """
+        Convert this schedule entry to a SQL record that can be added to the
+        database.
+
+        Returns:
+            A SQL record for this entry.
+        """
+
+        return SQLScheduleEntry(
+            start_time=self.start_time,
+            end_time=self.end_time,
+            days=self.days.to_db(),
+            config=self.config_to_db()
+        )

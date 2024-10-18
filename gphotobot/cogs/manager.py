@@ -227,4 +227,7 @@ async def teardown(bot: GphotoBot):
     """
 
     _log.info('Unloaded Manager cog')
-    bot.tree.on_error = bot.old_tree_error
+    try:
+        bot.tree.on_error = bot.old_tree_error  # noqa
+    except AttributeError:
+        pass

@@ -6,7 +6,7 @@ from sqlalchemy.engine import URL
 
 from gphotobot.conf import settings
 from .models.base import Base
-from .models.cameras import Cameras
+from .models.cameras import Camera
 from .models.timelapses import Timelapse
 from .models.schedule_entries import ScheduleEntry
 

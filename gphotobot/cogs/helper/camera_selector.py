@@ -24,10 +24,9 @@ async def _set_unique_camera_labels(name: str,
     unique names, and add them to self.cameras.
 
     Args:
-        name (str): The name.
-        cameras (list[GCamera]): One or more cameras with that name.
-        camera_dict (dict[str, GCamera]): The master dictionary to which
-        to add label:camera pairs.
+        name: The name.
+        cameras: One or more cameras with that name.
+        camera_dict: The master dictionary to which to add label:camera pairs.
     """
 
     # Easy case: already unique name
@@ -38,7 +37,7 @@ async def _set_unique_camera_labels(name: str,
     # Harder case: shared names. Find something unique
     for cam in cameras:
         # Try using USB ports/device
-        usb = cameras.get_usb_bus_device_str()
+        usb = cam.get_usb_bus_device_str()
         if usb:
             new_name = utils.trunc(
                 name, const.SELECT_MENU_LABEL_LENGTH - len(usb) - 7
@@ -56,7 +55,7 @@ async def _set_unique_camera_labels(name: str,
             continue
 
         # If that doesn't work, just add an incrementing number
-        for i in range(1, len(cams) + 1):
+        for i in range(1, len(cameras) + 1):
             new_name = utils.trunc(
                 name, const.SELECT_MENU_LABEL_LENGTH - len(str(i)) - 4
             ) + f' (#{i})'

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import date, datetime
 import logging
+from typing import Optional
 
+from gphotobot.sql import ScheduleEntry as SQLScheduleEntry
 from gphotobot.utils import const, utils
 from gphotobot.utils.validation_error import ValidationError
 from .change_tracker import TracksChanges
@@ -13,13 +16,35 @@ _log = logging.getLogger(__name__)
 
 
 class Schedule(list[ScheduleEntry], TracksChanges):
-    def __init__(self):
+    def __init__(self, entries: Optional[Iterable[ScheduleEntry]] = None):
         """
         Create a new Schedule. This is a list of ScheduleEntries that coordinate
         a timelapse.
+
+        Args:
+            entries: A set of existing entries to add to this schedule, or None
+            to start with an empty schedule. Defaults to None.
+
+        Raises:
+            ValidationError: If any of the entries fail validation checks while
+            adding them with append().
         """
 
         super().__init__()
+        if entries is not None:
+            for entry in entries:
+                self.append(entry)
+
+    @classmethod
+    def from_db(cls, records: list[SQLScheduleEntry]) -> Schedule:
+        """
+        Construct a Schedule from a list of schedule entry records.
+
+        Returns:
+            A new schedule.
+        """
+
+        return cls(ScheduleEntry.from_db(r) for r in records)
 
     def append(self, entry: ScheduleEntry) -> None:
         """
@@ -171,3 +196,13 @@ class Schedule(list[ScheduleEntry], TracksChanges):
 
     def has_changed(self) -> bool:
         return any(e.has_changed() for e in self)
+
+    def to_db(self) -> list[SQLScheduleEntry]:
+        """
+        Convert all the schedule entries into database records.
+
+        Returns:
+            A list of SQL schedule entry records.
+        """
+
+        return [e.to_db() for e in self]
