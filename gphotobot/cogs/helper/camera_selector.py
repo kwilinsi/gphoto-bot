@@ -1,7 +1,7 @@
 from collections import defaultdict
-from functools import partial
+from collections.abc import Awaitable, Callable
 import logging
-from typing import Callable, Iterable, Optional, Awaitable
+from typing import Optional
 
 import discord
 from discord import ButtonStyle, ui

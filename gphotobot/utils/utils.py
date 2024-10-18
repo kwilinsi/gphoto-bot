@@ -27,7 +27,8 @@ TIME_DELTA_REGEX = (
 
 
 def list_to_str(items: Iterable[any],
-                conjunction: str = 'and') -> str:
+                delimiter: str = ',',
+                conjunction: Optional[str] = 'and') -> str:
     """
     Nicely combine a list of objects into a comma-separated string. This
     includes the Oxford comma. The conjunction is 'and' by default, but it can
@@ -44,9 +45,13 @@ def list_to_str(items: Iterable[any],
     Args:
         items: The collection of items. If this is a set, note that order of
         the returned string is not guaranteed.
+        delimiter: Specify a custom delimiter (instead of the comma, in which
+        case this will use an ... "Oxford delimiter"?) Defaults to a ",".
         conjunction: The conjunction to use between the last two elements
         (provided that there are at least two). This appears after the Oxford
-        comma in lists of 3+ items. Defaults to "and."
+        comma in lists of 3+ items. If this is None, no conjunction is used
+        between the last item (though they are still separated by the
+        delimiter). Defaults to "and".
 
     Returns:
         A human-friendly string with the combined elements.
@@ -57,18 +62,20 @@ def list_to_str(items: Iterable[any],
 
     if not hasattr(items, '__len__'):
         items = tuple(items)
-    l = len(items)
+    n = len(items)
 
-    if l == 0:
+    if n == 0:
         return ""
-    elif l == 1:
+    elif n == 1:
         return str(next(iter(items)))
-    elif l == 2:
+    elif n == 2:
         i1, i2 = items
-        return str(i1) + ' ' + conjunction + ' ' + str(i2)
+        conjunction = ' ' if conjunction is None else f' {conjunction} '
+        return str(i1) + conjunction + str(i2)
     else:
-        return ', '.join(
-            str(i) if index + 1 < l else conjunction + ' ' + str(i)
+        conjunction = '' if conjunction is None else f'{conjunction} '
+        return (delimiter + ' ').join(
+            str(i) if index + 1 < n else conjunction + str(i)
             for index, i in enumerate(items)
         )
 

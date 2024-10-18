@@ -1,17 +1,14 @@
 import logging
-from sys import modules
 
-import sqlalchemy
-from sqlalchemy import create_engine
 from sqlalchemy.ext.asyncio import (AsyncEngine, AsyncSession,
                                     async_sessionmaker, create_async_engine)
 from sqlalchemy.engine import URL
-from sqlalchemy.orm import sessionmaker
 
 from gphotobot.conf import settings
 from .models.base import Base
-from .models.timelapses import Timelapses
 from .models.cameras import Cameras
+from .models.timelapses import Timelapse
+from .models.schedule_entries import ScheduleEntry
 
 _log = logging.getLogger(__name__)
 

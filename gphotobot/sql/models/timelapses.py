@@ -1,11 +1,11 @@
 from datetime import datetime
+import re
 from typing import Optional
 
-from select import select
 from sqlalchemy import BigInteger, Boolean, DateTime, Float, select, String
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import func
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base
 
@@ -17,7 +17,7 @@ NAME_MAX_LENGTH = 100
 DIRECTORY_MAX_LENGTH = 300
 
 
-class Timelapses(Base):
+class Timelapse(Base):
     __tablename__ = 'Timelapses'
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -39,8 +39,14 @@ class Timelapses(Base):
     is_running: Mapped[bool] = mapped_column(Boolean(), default=False)
     is_finished: Mapped[bool] = mapped_column(Boolean(), default=False)
 
+    # Schedules relationship: one-to-many
+    # noinspection PyUnresolvedReferences
+    schedule_entries: Mapped[list["ScheduleEntry"]] = relationship(
+        back_populates="timelapse"
+    )
 
-async def get_all_active(session: AsyncSession) -> list[Timelapses]:
+
+async def get_all_active(session: AsyncSession) -> list[Timelapse]:
     """
     Get a list of all the timelapses where is_finished is False.
 
@@ -48,10 +54,10 @@ async def get_all_active(session: AsyncSession) -> list[Timelapses]:
         session: The database session.
 
     Returns:
-        list[Timelapses]: The list of all active timelapses.
+        list[Timelapse]: The list of all active timelapses.
     """
 
-    stmt = select(Timelapses).where(Timelapses.is_finished == False)
+    stmt = select(Timelapse).where(Timelapse.is_finished == False)
     result = await session.scalars(stmt)
     return [tl for tl in result]
 
@@ -80,7 +86,7 @@ async def generate_default_name(session: AsyncSession) -> str:
 
     # Get all timelapses named for today
     default_name = datetime.now().strftime(DEFAULT_NAME_FORMAT)
-    stmt = select(Timelapses).where(Timelapses.name.like(f'{default_name}%'))
+    stmt = select(Timelapse).where(Timelapse.name.like(f'{default_name}%'))
     result = await session.scalars(stmt)
 
     # Find the current highest disambiguating id
@@ -110,6 +116,6 @@ async def is_name_active(session: AsyncSession, name: str) -> bool:
         bool: Whether the given name is active.
     """
 
-    stmt = select(Timelapses).where(Timelapses.name == name)
+    stmt = select(Timelapse).where(Timelapse.name == name)
     result = await session.scalars(stmt)
     return len(result.all()) > 0
