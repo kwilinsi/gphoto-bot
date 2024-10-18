@@ -197,7 +197,7 @@ class DateString:
         for i in range(1, len(ranges)):
             l = ranges[i][0] if ranges[i][1] is None else ranges[i][1]
             if start_date.month != l.month or start_date.year != l.year:
-                segments.append(DateSegment(ranges[start:i - 1]))
+                segments.append(DateSegment(ranges[start:i]))
                 start = i
                 start_date = ranges[start][0]
 
@@ -411,7 +411,7 @@ def fmt_date(d: date,
         A formatted string with this single date.
     """
 
-    m = d.strftime(f"%{'B' if long else ''} ") if month else ""
+    m = d.strftime(f"%{'B' if long else 'b'} ") if month else ""
     day = add_ordinal(d) if ordinal else str(d.day)
     y = f', {d.year}' if year else ''
 

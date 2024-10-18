@@ -6,7 +6,7 @@ import gphoto2 as gp
 
 from .bot import GphotoBot
 from .conf import settings, logger_conf
-from .libgphoto import gmanager
+from .libgphoto import gmanager, NoCameraFound
 from . import sql
 
 
@@ -36,7 +36,12 @@ async def main(args: Namespace):
 
     # Detect and cache cameras
     log.info('Loading cameras...')
-    await gmanager.all_cameras(force_reload=True)
+    try:
+        await gmanager.all_cameras(force_reload=True)
+    except NoCameraFound:
+        log.warning("ALERT: No cameras detected! You won't be able to take "
+                    "any pictures until you connect a camera. You can reload "
+                    "cameras using the '/camera list' command.")
 
     # Create the bot
     log.info(f'Initializing bot...')
