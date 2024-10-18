@@ -36,7 +36,8 @@ class DaysOfWeek(set[DayEnum], Days):
             "DaysOfWeek([abbreviations])"
         """
 
-        return f"{self.__class__.__name__}({self.single_letter_abbreviations})"
+        return self.__class__.__name__ + \
+            '(' + self.single_letter_abbreviations() + ')'
 
     #################### DAYS METHOD IMPLEMENTATIONS ####################
 
