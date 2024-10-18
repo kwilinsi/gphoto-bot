@@ -195,7 +195,7 @@ class ScheduleEntry(TracksChanges):
         """
 
         if interval is None:
-            if 'interval' in self.config:
+            if 'capture_interval' in self.config:
                 del self.config['capture_interval']
                 return True
         elif self.get_config_interval() != interval:

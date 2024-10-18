@@ -8,6 +8,7 @@ import discord
 from discord import ui, utils as discord_utils
 
 from gphotobot.utils import utils
+from gphotobot.utils.validation_error import ValidationError
 
 _log = logging.getLogger(__name__)
 
@@ -44,6 +45,7 @@ class ChangeIntervalModal(ui.Modal, title='Timelapse Interval'):
 
         if not required:
             self.interval.required = False
+            self.interval.min_length = 0
 
         if interval is not None:
             self.interval.default = utils.format_duration(
@@ -70,17 +72,36 @@ class ChangeIntervalModal(ui.Modal, title='Timelapse Interval'):
             await self.callback(None)
             return
 
-        # Parse the interval string
-        interval = utils.parse_time_delta(self.interval.value)
+        # Parse the interval string, and raise errors if it's malformed
+        try:
+            interval: Optional[timedelta] = \
+                utils.parse_time_delta(self.interval.value)
 
-        if interval is None:
-            clean = discord_utils.escape_markdown(self.interval.value)
+            # Raise an error if it can't be parsed
+            if interval is None:
+                clean = discord_utils.escape_markdown(self.interval.value)
+                raise ValidationError(
+                    f"Couldn't parse the interval **\"{clean}\"**. The "
+                    f"capture interval must be in a supported format, like "
+                    f"'5h 2m 12.8s', '8:03', or '1d 10:30s'."
+                )
+
+            # Treat an interval of 0 as None
+            if interval == timedelta():
+                interval = None
+                if self.required:
+                    raise ValidationError(
+                        msg="Setting the capture interval to 0 disables it, "
+                            "and you can't do that: the interval is required "
+                            "here."
+                    )
+        except ValidationError as e:
             embed = utils.contrived_error_embed(
                 title='Error: Invalid Interval',
-                text=f"Couldn't parse the interval **\"{clean}\"**. The "
-                     f"capture interval must be in a supported format, like "
-                     f"'5h 2m 12.8s', '8:03', or '1d 10:30s'."
+                text=e.msg
             )
             await interaction.followup.send(embed=embed, ephemeral=True)
-        else:
-            await self.callback(interval)
+            return
+
+        # Finally, send the parsed interval to the callback
+        await self.callback(interval)

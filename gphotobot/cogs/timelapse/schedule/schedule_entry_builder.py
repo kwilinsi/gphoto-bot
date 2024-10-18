@@ -1,5 +1,5 @@
 from collections.abc import Awaitable, Callable
-from datetime import date, time
+from datetime import date, time, timedelta
 import logging
 from typing import Optional, Union
 
@@ -344,7 +344,7 @@ class ScheduleEntryBuilder(BaseView):
         self.button_set_times.emoji = settings.EMOJI_CHANGE_TIME
         await self.refresh_display()
 
-    async def set_capture_interval(self, interval: Optional[int]) -> None:
+    async def set_capture_interval(self, interval: Optional[timedelta]) -> None:
         """
         Set the new capture interval, a custom configuration for this schedule
         entry. If there is currently no entry, one is created with the default
@@ -359,6 +359,8 @@ class ScheduleEntryBuilder(BaseView):
         if self.entry is None:
             if interval is None:
                 return
+
+            # Create a default entry, so we can set its interval
             self.entry = ScheduleEntry()
 
         # Set button label based on whether an interval is present
@@ -405,7 +407,8 @@ class ScheduleEntryBuilder(BaseView):
 
         await interaction.response.send_modal(ChangeIntervalModal(
             self.set_capture_interval,
-            None if self.entry is None else self.entry.get_config_interval()
+            None if self.entry is None else self.entry.get_config_interval(),
+            required=False
         ))
 
     async def click_button_save(self, interaction: Interaction) -> None:
