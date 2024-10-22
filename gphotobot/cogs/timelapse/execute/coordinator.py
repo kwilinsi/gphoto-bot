@@ -42,7 +42,16 @@ class Coordinator(TaskLoop, commands.Cog, metaclass=CogABCMeta):
             minutes=settings.TIMELAPSE_COORDINATOR_REFRESH_DELAY
         )
 
-    async def run(self) -> None:
+    async def run(self) -> str:
+        """
+        Reload timelapse data from the database. Add, update, or remove
+        timelapse executors as needed.
+
+        Returns:
+            A user-friendly string indicating the number of executors that were
+            added, updated, and/or removed.
+        """
+
         _log.info('Timelapse coordinator: syncing with database')
 
         # Load timelapses from database
@@ -72,7 +81,7 @@ class Coordinator(TaskLoop, commands.Cog, metaclass=CogABCMeta):
                 await self.remove_executor(self.executors[executor_id])
                 removed += 1
 
-        # Print a log message nicely summarizing what happened
+        # Build a message nicely summarizing what happened
         n = added + updated + removed
         changes = utils.list_to_str(
             ((f"added {added}" if added > 0 else None),
@@ -80,8 +89,12 @@ class Coordinator(TaskLoop, commands.Cog, metaclass=CogABCMeta):
              (f"removed {removed}" if removed > 0 else None)),
             omit_empty=True
         ) + f" timelapse executor{'' if n == 1 else 's'}"
-        _log.info('Synced timelapse executors with db: ' +
-                  (changes if n else 'no changes made'))
+        message = ('Synced timelapse scheduler with database: ' +
+                   (changes if n else 'no changes made'))
+
+        # Log and return the message
+        _log.info(message)
+        return message
 
     async def add_timelapse(self, tl: Timelapse) -> bool:
         """

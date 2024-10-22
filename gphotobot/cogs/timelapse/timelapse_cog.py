@@ -19,7 +19,9 @@ from .validation import InvalidTimelapseNameError
 _log = logging.getLogger(__name__)
 
 
-class TimelapseCog(commands.Cog):
+class TimelapseCog(commands.GroupCog,
+                   group_name='timelapse',
+                   group_description='Manage automated timelapses'):
     def __init__(self, bot: GphotoBot):
         self.bot: GphotoBot = bot
 
@@ -67,7 +69,7 @@ class TimelapseCog(commands.Cog):
         name=f'A unique name (max {NAME_MAX_LENGTH} characters)'
     )
     async def create(self,
-                     interaction: discord.Interaction[commands.Bot],
+                     interaction: discord.Interaction[GphotoBot],
                      name: str) -> None:
         """
         Create a new timelapse.
@@ -92,7 +94,7 @@ class TimelapseCog(commands.Cog):
     @app_commands.command(description='Show all active timelapses',
                           extras={'defer': True})
     async def list(self,
-                   interaction: discord.Interaction[commands.Bot]) -> None:
+                   interaction: discord.Interaction[GphotoBot]) -> None:
         """
         List all the currently active timelapses.
 
@@ -158,3 +160,21 @@ class TimelapseCog(commands.Cog):
 
         # Send the embed
         await interaction.followup.send(embed=embed)
+
+    @app_commands.command(description='Reload timelapse from the database '
+                                      'to update the scheduler',
+                          extras={'defer': True})
+    async def reload(self,
+                     interaction: discord.Interaction[GphotoBot]) -> None:
+        # Defer the interaction
+        await interaction.response.defer(thinking=True)
+
+        # Reload the timelapses
+        from .execute import TIMELAPSE_COORDINATOR
+        msg: str = await TIMELAPSE_COORDINATOR.run()
+
+        # Send the summary message
+        await interaction.followup.send(embed=utils.default_embed(
+            title='Reloaded Timelapses',
+            description=msg
+        ))
