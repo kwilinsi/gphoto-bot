@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from datetime import date, datetime, timedelta
 from typing import Optional
 
 from gphotobot.utils import utils
@@ -189,6 +190,29 @@ class DaysOfWeek(set[DayEnum], Days):
 
     def does_ever_run(self) -> bool:
         return len(self) > 0
+
+    def does_run_on(self, d: date | datetime) -> bool:
+        # Convert d to a date (if it's a datetime), and get .weekday(), an
+        # int from 0 to 6. Then compare to the indices of the days in this rule
+        return (d.date() if isinstance(d, datetime) else d).weekday() \
+            in tuple(day.index for day in self)
+
+    def next_event_after(self, d: date | datetime) -> Optional[date]:
+        if len(self) == 7 or len(self) == 0:
+            return None  # Never changes if this includes every day or no days
+
+        # Get the day of the week for the given date
+        weekday: DayEnum = DayEnum.from_index(
+            (d.date() if isinstance(d, datetime) else d).weekday()
+        )
+        contained: bool = weekday in self
+
+        # Find the next date where the state changes
+        while weekday in self == contained:
+            weekday = weekday.next_day()
+            d += timedelta(days=1)
+
+        return d
 
     #################### EXTRA FUNCTIONS ####################
 

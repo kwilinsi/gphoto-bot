@@ -28,7 +28,8 @@ TIME_DELTA_REGEX = (
 
 def list_to_str(items: Iterable[any],
                 delimiter: str = ',',
-                conjunction: Optional[str] = 'and') -> str:
+                conjunction: Optional[str] = 'and',
+                omit_empty: bool = False) -> str:
     """
     Nicely combine a list of objects into a comma-separated string. This
     includes the Oxford comma. The conjunction is 'and' by default, but it can
@@ -52,6 +53,9 @@ def list_to_str(items: Iterable[any],
         comma in lists of 3+ items. If this is None, no conjunction is used
         between the last item (though they are still separated by the
         delimiter). Defaults to "and".
+        omit_empty: Whether to ignore any items that are empty/None.
+        Specifically, any items that don't resolve to the boolean True are
+        skipped. (As in "if not item: skip it"). Defaults to False.
 
     Returns:
         A human-friendly string with the combined elements.
@@ -62,6 +66,10 @@ def list_to_str(items: Iterable[any],
 
     if not hasattr(items, '__len__'):
         items = tuple(items)
+
+    if omit_empty:
+        items = tuple(i for i in items if i)
+
     n = len(items)
 
     if n == 0:
@@ -173,9 +181,10 @@ def latency(start: datetime, end: datetime = None) -> str:
 
 
 def format_duration(seconds: float | timedelta,
-                    always_decimal: bool = False) -> str:
+                    always_decimal: bool = False,
+                    spaces: bool = True) -> str:
     """
-    Take a number of seconds or a timedelta, and format it nicely as a string.
+    Take a timedelta or a float in seconds, and format it nicely as a string.
 
     If less than 1 second: "0.00s"
     If less than 10 seconds: "0.0s"
@@ -194,6 +203,8 @@ def format_duration(seconds: float | timedelta,
         seconds: The number of seconds or a timedelta.
         always_decimal: Whether to always include a decimal number of seconds,
         if applicable. Maximum 3 decimal places. Defaults to False.
+        spaces: Whether to include spaces in the output string between each
+        unit of time. Defaults to True.
 
     Returns:
         str: The formatted time string.
@@ -243,13 +254,16 @@ def format_duration(seconds: float | timedelta,
     if seconds > 0:
         time_str += f' {seconds}s'
 
-    # Return the formatted string (sans the first character, a space)
-    return time_str[1:]
+    # Return the formatted string (sans the first character, a space) or with
+    # all spaces removed, if spaces == False
+    return time_str[1:] if spaces else time_str.replace(' ', '')
 
 
-def format_time(t: time, use_text: bool = False) -> str:
+def format_time(t: time | datetime | None = None,
+                use_text: bool = False) -> str:
     """
-    Given a `datetime.time`, format it nicely as a string.
+    Given a `datetime.time`, format it nicely as a string. (This does not
+    include the date portion if a datetime is given).
 
     If the seconds are 0, the format is "%-I:%M:%S %p". If it doesn't include
     seconds, the format is the slightly simpler: "%-I:%M %p".
@@ -263,13 +277,19 @@ def format_time(t: time, use_text: bool = False) -> str:
     "noon" are given in lowercase.
 
     Args:
-        t: The time to format.
+        t: The time to format. If None, the current time is used. Defaults to
+        None.
         use_text: Replace certain times (midnight and noon) with text rather
         than a time. Defaults to False.
 
     Returns:
         The formatted time.
     """
+
+    if t is None:
+        t: time = datetime.now().time()
+    elif isinstance(t, datetime):
+        t: time = t.time()
 
     # Check for midnight/noon
     if use_text:

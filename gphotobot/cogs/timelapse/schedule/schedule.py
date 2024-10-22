@@ -206,3 +206,105 @@ class Schedule(list[ScheduleEntry], TracksChanges):
         """
 
         return [e.to_db() for e in self]
+
+    def active_entry_at(self, dt: datetime) -> Optional[ScheduleEntry]:
+        """
+        Determine which schedule entry is active a particular time. If no entry
+        is active at that time, this returns None.
+
+        This is checked in the natural order of the entries. The first entry
+        receives precedence, and the second entry is checked only if the first
+        one doesn't match, etc.
+
+        Args:
+            dt: The timestamp to check.
+
+        Returns:
+            The active entry, or None if there is no active entry.
+        """
+
+        for entry in self:
+            if entry.is_active_at(dt):
+                return entry
+
+        return None
+
+    def next_event_after(self, dt: datetime) -> \
+            tuple[Optional[datetime], Optional[ScheduleEntry], bool]:
+        """
+        Determine the next time that the active schedule entry will change for
+        this timelapse.
+
+        This returns a tuple with three elements:
+        - A datetime: this is the time that the next event occurs that will
+          change the timelapse in some way. It will always be AFTER the given
+          datetime, never equal to or before it.
+        - A ScheduleEntry: this is the schedule entry that will change its state
+          at the returned time.
+        - A boolean: this indicates whether the schedule entry will become
+          active or inactive at the given time. Usually, this is True,
+          indicating that the entry becomes active. If False, it means that the
+          timelapse will turn off until the next schedule entry becomes active.
+
+        If no entries are currently active or none of them will ever become
+        active, this returns (None, None, True).
+
+        If one entry becomes inactive at the same time another becomes active
+        (either because their start/end times or day rules touch, or they
+        overlap), then this event refers to the latter one becoming active.
+        Remember that only one schedule entry can be active at a given time.
+
+        Args:
+            dt: The timestamp to start checking from. The returned event will
+            always be AFTER this time, not equal to or before it.
+
+        Returns:
+            The next event, composed of the time it occurs, the effected entry,
+            and whether the entry becomes active or inactive.
+        """
+
+        if len(self) == 0:
+            return None, None, True
+
+            # (Note: in these comments, by "now"/"today" I mean the value of `dt`).
+
+        # Check whether there's currently an active schedule entry
+        active: Optional[ScheduleEntry] = self.active_entry_at(dt)
+
+        # If it is active, start from the time it deactivates
+        if active is not None:
+            deactivate_time, state = active.next_event_after(dt)
+            assert state == False
+
+            # Check if any other entries are active at this time
+            new_active = self.active_entry_at(deactivate_time)
+            if new_active is not None:
+                return deactivate_time, new_active, True
+
+            # No other entries will start immediately when this one stops
+            return deactivate_time, active, False
+
+        # Find the earliest time that each entry becomes active
+        # (associated with that entry's index)
+        next_events = [entry.next_event_after(dt) for entry in self]
+
+        # Making sure that all these events are for entries *starting*, because
+        # none are active right now, and thus none of them should be stopping
+        assert all(state == True for _, state in next_events)
+
+        # Find the earliest event time (note that there could easily be more
+        # than one schedule entry starting at this time)
+        first_time = None
+        for event_time, _ in next_events:
+            if event_time is not None and \
+                    (first_time is None or event_time < first_time):
+                first_time = event_time
+
+        # No entries have any upcoming events
+        if first_time is None:
+            return None, None, True
+
+        # Return the first schedule entry starting at that time
+        for (event_time, _), entry in zip(next_events, self):
+            if event_time == first_time:
+                return event_time, entry, True

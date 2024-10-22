@@ -11,7 +11,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from gphotobot.conf import settings
 from gphotobot.libgphoto import GCamera, gmanager, NoCameraFound
-from gphotobot.sql import async_session_maker, Timelapse
+from gphotobot.sql import async_session_maker, State, Timelapse
 from gphotobot.utils import utils
 from gphotobot.utils.base.view import BaseView
 from gphotobot.utils.base.confirmation_dialog import ConfirmationDialog
@@ -423,8 +423,10 @@ class TimelapseCreator(BaseView):
             return
 
         try:
-            async with async_session_maker() as session, session.begin():
-                session.add(await self.to_db())
+            async with (async_session_maker(expire_on_commit=False) as session,
+                        session.begin()):
+                tl = await self.to_db()
+                session.add(tl)
         except SQLAlchemyError as e:
             await interaction.followup.send(embed=utils.error_embed(
                 e,
@@ -432,6 +434,9 @@ class TimelapseCreator(BaseView):
                      'try again later or report a bug.'
             ))
             return
+
+        from .execute import TIMELAPSE_COORDINATOR
+        await TIMELAPSE_COORDINATOR.add_timelapse(tl)
 
         await ConfirmationDialog(
             interaction=self.interaction,
@@ -451,6 +456,8 @@ class TimelapseCreator(BaseView):
             The new timelapse record to send to the database.
         """
 
+        schedule = self.schedule
+
         return Timelapse(
             camera_id=await self.camera.get_db_id(),
             name=self.name,
@@ -458,9 +465,11 @@ class TimelapseCreator(BaseView):
             directory=str(self.directory),
             start_time=self.start_time,
             end_time=self.end_time,
-            interval=self.interval.total_seconds(),
+            capture_interval=self.interval.total_seconds(),
             total_frames=self.total_frames,
-            schedule_entries=self.schedule.to_db()
+            state=State.READY if self.start_time is None else State.WAITING,
+            has_schedule=schedule is not None and len(schedule) > 0,
+            schedule_entries=[] if schedule is None else schedule.to_db()
         )
 
     def validate(self) -> None:

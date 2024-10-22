@@ -7,7 +7,7 @@ from sqlalchemy.engine import URL
 from gphotobot.conf import settings
 from .models.base import Base
 from .models.cameras import Camera
-from .models.timelapses import Timelapse
+from .models.timelapses import State, Timelapse, get_active_timelapses
 from .models.schedule_entries import ScheduleEntry
 
 _log = logging.getLogger(__name__)

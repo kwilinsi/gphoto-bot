@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import time, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Optional
 
 from gphotobot.sql import ScheduleEntry as SQLScheduleEntry
@@ -72,7 +72,7 @@ class ScheduleEntry(TracksChanges):
             days=Days.from_db(record.days),
             start_time=record.start_time,
             end_time=record.end_time,
-            config=record.config
+            config=cls.config_from_db(record.config)
         )
 
     @property
@@ -201,8 +201,7 @@ class ScheduleEntry(TracksChanges):
             True if and only if it runs all day.
         """
 
-        return self.start_time == self.MIDNIGHT and \
-            self.end_time == self.ELEVEN_FIFTY_NINE
+        return self.start_time == self.MIDNIGHT and self.ends_at_midnight()
 
     def set_config_interval(self, interval: Optional[timedelta]) -> bool:
         """
@@ -315,3 +314,110 @@ class ScheduleEntry(TracksChanges):
             days=self.days.to_db(),
             config=self.config_to_db()
         )
+
+    def ends_at_midnight(self) -> bool:
+        """
+        Check whether the end time for this schedule entry is effectively
+        midnight. Technically, it can't be exactly the base time() with 0 hours,
+        0 minutes, and 0 seconds (only the start time can exactly equal
+        midnight). But if the end time is within one second of midnight, that's
+        considered effectively midnight.
+
+        This is important because if the end time is midnight, then this entry
+        does not stop at the end of the day: it goes straight on to the next
+        day. And if it also starts at midnight, then, this schedule entry may
+        apply 24/7 or overnight.
+
+        Returns:
+            True if and only if the end time is in the range
+            [23:59:59, 00:00:00).
+        """
+
+    def is_active_at(self, dt: datetime) -> bool:
+        """
+        Check whether this scheduling rule applies at the given date/time. If
+        this exactly matches when the rule starts, this returns True. If it
+        exactly matches the time this rule ends, this returns False.
+
+        Args:
+            dt: The date/time to check.
+
+        Returns:
+            True if and only if this rule is in effect at the given time.
+        """
+
+        t = dt.time()
+        return self.days.does_run_on(dt) and \
+            self.start_time <= t and \
+            (self.ends_at_midnight() or t < self.end_time)
+
+    def next_event_after(self, dt: datetime) -> tuple[Optional[datetime], bool]:
+        """
+        Determine the next time that this entry will either become active or
+        cease being active, after the given datetime.
+
+        For example, say this rule applies from 8 a.m. to 5 p.m. on Mondays,
+        and you pass the datetime "2024-10-21 12:00 p.m.", which is noon on
+        a Monday. This will return ("2024-10-21 5 p.m.", False), meaning that
+        at 5 p.m. on 2024-10-21, this entry is no longer active.
+
+        If you passed "2024-10-28 5 a.m.", which is 5 a.m. on the following
+        Monday, this will return ("2024-10-28 8 a.m.", True), which is the
+        next time that it *becomes* active. (Note that this returns actual
+        datetime objects, not strings).
+
+        If this entry never changes state again, the datetime is None. And the
+        boolean indicates whether it would become active/inactive if it *did*
+        change (though it won't). That is, it'll return (None, False) if it'll
+        never turn off and (None, True) if it'll never turn on.
+
+        Args:
+            dt: The date time to start from. The returned time is always AFTER
+            this time (never equal to it).
+
+        Returns:
+            The next datetime that this schedule entry changes state, along with
+            a boolean indicating whether it becomes active (True) or inactive
+            (False). Or, if it never changes state, then None (no time), and
+            a boolean indicating what state it *would* change to if it did
+            change.
+        """
+
+        # (Note: in these comments, by "now"/"today" I mean the value of `dt`).
+
+        # First, determine whether it's active today and/or right now
+        d, t = dt.date(), dt.time()
+        runs_today: bool = self.days.does_run_on(d)
+        runs_now: bool = runs_today and self.start_time <= t and \
+                         (self.ends_at_midnight() or t < self.end_time)
+
+        # If it runs today, see whether it's going to start/end soon
+        if runs_today:
+            # Check if it hasn't started yet
+            if t < self.start_time:
+                return datetime.combine(d, self.start_time), True
+
+            # Check if it's running now
+            if runs_now:
+                # If it runs all day long, then it'll stop running at midnight
+                # on the next day the Days rule changes
+                if self.runs_all_day():
+                    next_change: Optional[date] = self.days.next_event_after(d)
+                    if next_change is None:
+                        return None, False  # It'll never turn off
+                    else:
+                        # It'll turn off at midnight on the earliest day that
+                        # the rule no longer takes effect
+                        return (datetime.combine(next_change, self.MIDNIGHT),
+                                False)
+                else:
+                    # Otherwise it'll stop today at the end time
+                    return datetime.combine(d, self.end_time), False
+
+        # At this point, we know it's not currently running. So it'll start
+        # running at the start_time on the first day it takes effect again
+        next_change: Optional[date] = self.days.next_event_after(d)
+        if next_change is None:
+            return None, True  # It'll never turn on
+        else:
+            return datetime.combine(next_change, self.start_time), True

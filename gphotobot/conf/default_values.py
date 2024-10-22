@@ -108,14 +108,14 @@ DEFAULT_EMBED_COLOR = dc.DefaultConfigEntry(
     section='messages',
     default=Color.teal(),
     cast_func=dc.to_color,
-    expected='Expected a color hex code'
+    expected='a color hex code'
 )
 
 DISABLED_EMBED_COLOR = dc.DefaultConfigEntry(
     section='messages',
     default=Color.dark_gray(),
     cast_func=dc.to_color,
-    expected='Expected a color hex code'
+    expected='a color hex code'
 )
 
 # The color of embeds related to bot management
@@ -123,7 +123,7 @@ MANAGEMENT_EMBED_COLOR = dc.DefaultConfigEntry(
     section='messages',
     default=Color.gold(),
     cast_func=dc.to_color,
-    expected='Expected a color hex code'
+    expected='a color hex code'
 )
 
 # The color of embeds with error messages
@@ -131,7 +131,7 @@ ERROR_EMBED_COLOR = dc.DefaultConfigEntry(
     section='messages',
     default=Color(0xDA373C),
     cast_func=dc.to_color,
-    expected='Expected a color hex code'
+    expected='a color hex code'
 )
 
 # The color of embeds with error messages that have been disabled
@@ -139,7 +139,7 @@ DISABLED_ERROR_EMBED_COLOR = dc.DefaultConfigEntry(
     section='messages',
     default=Color(0x40191b),
     cast_func=dc.to_color,
-    expected='Expected a color hex code'
+    expected='a color hex code'
 )
 
 # The number of lines of traceback to include in error embeds when traceback is
@@ -153,23 +153,13 @@ ERROR_TRACEBACK_LENGTH = dc.DefaultConfigEntry(
 
 ################################################################################
 
-# The default root directory where new timelapses are placed. This is used
-# whenever the user specifies a relative path or uses the default.
-DEFAULT_TIMELAPSE_ROOT_DIRECTORY = dc.DefaultConfigEntry(
-    section='camera',
-    cast_func=dc.to_directory_path,
-    expected="An absolute directory "
-             "(doesn't need to exist, but can't be a file)",
-    has_default=False
-)
-
 # The number of times to retry gPhoto commands if they fail with error code -53,
 # indicating a busy USB device. If 0, no retries are attempted.
 GPHOTO_MAX_RETRY_ATTEMPTS_ON_BUSY_USB = dc.DefaultConfigEntry(
     section='camera',
     default=3,
     cast_func=partial(dc.to_int, min_value=0),
-    expected='Expected a positive integer or 0'
+    expected='a positive integer or 0'
 )
 
 # The time to wait (in seconds) between retrying gPhoto commands that failed. If
@@ -178,7 +168,30 @@ GPHOTO_RETRY_DELAY = dc.DefaultConfigEntry(
     section='camera',
     default=1.5,
     cast_func=partial(dc.to_float, min_value=0),
-    expected='Expected a positive number or 0'
+    expected='a positive number or 0'
+)
+
+################################################################################
+
+# The default root directory where new timelapses are placed. This is used
+# whenever the user specifies a relative path or uses the default.
+DEFAULT_TIMELAPSE_ROOT_DIRECTORY = dc.DefaultConfigEntry(
+    section='timelapse',
+    cast_func=dc.to_directory_path,
+    expected="an absolute directory "
+             "(doesn't need to exist, but can't be a file)",
+    has_default=False
+)
+
+# The timelapse coordinator coordinates the execution of timelapses. This delay
+# controls how often (in minutes) it refreshes the list of timelapses from the
+# database. (It also updates when a user specifically modifies a timelapse.
+# This is just a fail-safe in case the database itself was modified).
+TIMELAPSE_COORDINATOR_REFRESH_DELAY = dc.DefaultConfigEntry(
+    section='timelapse',
+    cast_func=partial(dc.to_float, min_value=1),
+    expected="a time in minutes (at least 1)",
+    default=15
 )
 
 ################################################################################

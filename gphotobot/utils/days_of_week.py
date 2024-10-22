@@ -117,6 +117,27 @@ class DayOfWeek(Enum):
         raise ValueError(f"No DayOfWeek matches for '{abbr}'")
 
     @classmethod
+    def from_index(cls, index: int) -> DayOfWeek:
+        """
+        Get a day of the week from its index. Monday == 0 and Sunday == 6.
+
+        Args:
+            index: The index of the desired day.
+
+        Returns:
+            The associated day of the week.
+
+        Raises:
+            ValueError: If there is no match for the given index.
+        """
+
+        for day in cls:
+            if index == day.index:
+                return day
+
+        raise ValueError(f"No DayOfWeek matches for index {index}")
+
+    @classmethod
     def from_full_name(cls, name: str) -> DayOfWeek:
         """
         Get a day of the week from its full name as string.

@@ -16,6 +16,7 @@ platformdirs
 python-dateutil
 pytz
 six
+sortedcontainers
 SQLAlchemy
 typing_extensions
 yarl

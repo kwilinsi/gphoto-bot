@@ -2,13 +2,16 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from datetime import date, datetime
+from typing import Optional
+
+from sortedcontainers import SortedSet
 
 from gphotobot.utils.validation_error import ValidationError
-from gphotobot.utils.dates import DateString
+from gphotobot.utils.dates import DateString, ONE_DAY
 from .days import Days
 
 
-class Dates(dict[date, None], Days):
+class Dates(SortedSet[date], Days):
     # ISO-8601 date format
     DATE_FORMAT = '%Y-%m-%d'
 
@@ -28,14 +31,14 @@ class Dates(dict[date, None], Days):
             in an embed. The attr should be used as the embed title.
         """
 
-        date_list: set[date] = {d.date if isinstance(d, datetime) else d
+        date_list: set[date] = {d.date() if isinstance(d, datetime) else d
                                 for d in dates}
 
         # Validate length
         self.validate_size(len(date_list))
 
-        # Sort the dates, and pass them to super, the actual list implementation
-        super().__init__({d: None for d in sorted(date_list)})
+        # Pass the dates to super, which will sort them
+        super().__init__(date_list)
 
     def add(self, new_date: date | datetime | Iterable[date | datetime]):
         """
@@ -58,9 +61,9 @@ class Dates(dict[date, None], Days):
         for d in new_date:
             if d not in self:
                 self.validate_size(len(self) + 1)
-                self[d] = None
+                super().add(d)
 
-    def remove(self, remove_date: date | datetime | Iterable[date | datetime]):
+    def discard(self, remove_date: date | datetime | Iterable[date | datetime]):
         """
         Remove one or more dates from this rule set. If they aren't in the set
         already, nothing happens.
@@ -76,8 +79,7 @@ class Dates(dict[date, None], Days):
             remove_date = (remove_date,)
 
         for d in remove_date:
-            if d in self:
-                del self[d]
+            self.discard(d)
 
     def __repr__(self):
         """
@@ -147,6 +149,28 @@ class Dates(dict[date, None], Days):
 
     def does_ever_run(self) -> bool:
         return len(self) > 0
+
+    def does_run_on(self, d: date | datetime) -> bool:
+        return (d.date() if isinstance(d, datetime) else d) in self
+
+    def next_event_after(self, d: date | datetime) -> Optional[date]:
+        # Convert to a date if given a datetime
+        d = d.date() if isinstance(d, datetime) else d
+
+        if d in self:
+            # If the rule is currently active, look for next inactive day
+            while (d := d + ONE_DAY) in self:
+                pass
+            return d
+        else:
+            # If the rule is inactive, get the next day from this set
+            index = self.bisect_right(d)  # bisect_left works here too
+
+            if index >= len(self):
+                # No more days; it'll never become active
+                return None
+            else:
+                return self[index]
 
     #################### EXTRA FUNCTIONS ####################
 

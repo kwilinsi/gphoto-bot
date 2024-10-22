@@ -1,4 +1,6 @@
 from __future__ import annotations
+
+from datetime import date, datetime
 from typing import Optional
 
 from abc import ABC, abstractmethod
@@ -188,6 +190,44 @@ class Days(ABC):
 
         Returns:
             Whether this rule ever runs, even once.
+        """
+
+        pass
+
+    @abstractmethod
+    def does_run_on(self, d: date | datetime) -> bool:
+        """
+        Check whether this rule applies on the given date.
+
+        Args:
+            d: The date to check. (If this is a datetime, it's converted to a
+            date before processing).
+
+        Returns:
+            True if and only if this rule applies on that date.
+        """
+
+        pass
+
+    @abstractmethod
+    def next_event_after(self, d: date | datetime) -> Optional[date]:
+        """
+        Get the next time that this rule changes state after the given date.
+        In other words, if the rule is currently active on the given date, then
+        this is the nearest date on which it is not active. Or, if it's not
+        active on the given date, then this is the nearest date on which it is
+        active.
+
+        If this rule either never applies or always applies from the given date
+        onwards, this returns None.
+
+        Args:
+            d: Begin checking after this date. (If this is a datetime,
+            it's converted to a date before processing).
+
+        Returns:
+            The next date that this rule changes state, or None if it never
+            will.
         """
 
         pass

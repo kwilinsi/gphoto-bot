@@ -43,7 +43,7 @@ class TimelapseCog(commands.Cog):
                 f'\n**User ID:** {timelapse.user_id}'
                 f'\n**Directory:** `{timelapse.directory}`'
                 f'\n**Frames:** {timelapse.frames}'
-                f'\n**Interval:** {utils.format_duration(timelapse.interval)}')
+                f'\n**Interval:** {utils.format_duration(timelapse.capture_interval)}')
 
         # Add the start time if it's known
         if timelapse.start_time:
@@ -107,7 +107,7 @@ class TimelapseCog(commands.Cog):
         try:
             async with async_session_maker() as session:  # read-only session
                 active_timelapses: list[Timelapse] = \
-                    await timelapses.get_all_active(session)
+                    await timelapses.get_active_timelapses(session)
         except exc.SQLAlchemyError as error:
             await utils.handle_err(
                 interaction=interaction,
