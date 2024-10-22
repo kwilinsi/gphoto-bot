@@ -47,6 +47,8 @@ class TimelapseExecutor(TaskLoop):
         self.timelapse: Timelapse = timelapse
         self.schedule: Schedule = Schedule.from_db(timelapse.schedule_entries)
 
+        _log.info(f"Created new timelapse executor: {self}")
+
     @property
     def id(self) -> int:
         return self.timelapse.id
@@ -307,10 +309,19 @@ class TimelapseExecutor(TaskLoop):
 
         #################### NO SCHEDULE EVENTS ####################
 
-        # If there's no schedule, or there is a schedule but without any
-        # upcoming entries that'll become active, then just wait until the
-        # global end time for the timelapse. Switch to the FINISHED state when
-        # it ends.
+        # If it hasn't reached the start time yet, then the next event is when
+        # it starts RUNNING (as there isn't a schedule to wait for).
+        if self.timelapse.start_time is not None and \
+                self.timelapse.start_time > now:
+            return ExecutorEvent.with_state(
+                self.timelapse.start_time,
+                self.timelapse,
+                State.RUNNING
+            )
+
+        # Either there's no schedule, or there aren't any upcoming schedule
+        # entries to wait for. Just wait until the global end time for the
+        # timelapse. Switch to the FINISHED state when it ends.
         if self.timelapse.end_time is not None:
             return ExecutorEvent.with_state(
                 self.timelapse.end_time,
@@ -332,7 +343,8 @@ class TimelapseExecutor(TaskLoop):
         # If the state changed, update the SQL db
         if self.timelapse.state != event.state:
             self.timelapse.state = event.state
-            _log.info(f'Timelapse {self.id} is now {event.state.name}')
+            _log.info(f"Timelapse '{self.name}' ({self.id}) "
+                      f" is now {event.state.name}")
             await self.update_db()
 
         if event.state in (State.READY, State.PAUSED, State.FINISHED):

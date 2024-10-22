@@ -49,8 +49,6 @@ class Coordinator(TaskLoop, commands.Cog, metaclass=CogABCMeta):
         async with async_session_maker(expire_on_commit=False) as session:
             timelapses: list[Timelapse] = await get_active_timelapses(session)
 
-        print(len(timelapses))
-
         # Sync with the ones we've got
         updated = added = removed = 0
         for db_t in timelapses:

@@ -33,8 +33,23 @@ class ExecutorEventQueue:
         again to recreate itself.
         """
 
+        # Cancel previous task, if there is one
+        if self._task is not None:
+            self._task.cancel()
+
+        # Start the new task
         self._task = asyncio.create_task(self._run())
-        self._task.add_done_callback(lambda _: self.create_task())
+
+        # When that task finishes, auto-start a new one using a callback IF
+        # there are entries still in the queue
+        async def callback():
+            async with self._lock:
+                if len(self._queue) > 0:
+                    self.create_task()
+
+        self._task.add_done_callback(
+            lambda _: asyncio.create_task(callback())
+        )
 
     async def _run(self) -> None:
         """
@@ -104,7 +119,8 @@ class ExecutorEventQueue:
         """
 
         async with self._lock:
-            self._task.cancel()
+            if self._task is not None:
+                self._task.cancel()
             self._queue.clear()
 
     async def push(self, event: ExecutorEvent) -> None:
@@ -122,10 +138,6 @@ class ExecutorEventQueue:
             heapq.heappush(self._queue, event)
 
             if self._task is None or event == self._queue[0]:
-                # If there's an existing task, cancel it to start the new one
-                if self._task is not None:
-                    self._task.cancel()
-
                 # Start a task to run the heap invariant executor event
                 self.create_task()
 
