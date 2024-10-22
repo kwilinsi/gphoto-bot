@@ -4,12 +4,13 @@ import logging
 from typing import Optional
 
 import discord
-from discord import ButtonStyle, ui
+from discord import ButtonStyle, ui, Embed
 
 from gphotobot.conf import settings
 from gphotobot.libgphoto import gmanager
 from gphotobot.libgphoto.gcamera import GCamera
 from gphotobot.utils import const, utils
+from gphotobot.utils.base.view import BaseView
 
 _log = logging.getLogger(__name__)
 
@@ -152,111 +153,71 @@ class Dropdown(ui.Select):
         await self.callback_camera(camera)
 
 
-class CameraSelector(ui.View):
+class CameraSelector(BaseView):
     def __init__(self,
+                 interaction: discord.Interaction,
                  callback: Callable[[GCamera], Awaitable[None]],
                  on_cancel: Callable[[], Awaitable[None]],
                  cameras: dict[str, GCamera],
-                 default_camera: Optional[GCamera],
-                 cancel_danger: bool):
+                 message: str | discord.Embed,
+                 default_camera: Optional[GCamera] = None,
+                 edit_response: bool = True,
+                 cancel_danger: bool = True):
         """
         Create a view allowing the user to select a camera.
 
         Args:
+            interaction: The interaction that triggered this UI event.
             callback: The async function to call whTen a camera is selected.
             on_cancel: The async function to call if the user clicks Cancel.
             cameras: The list of cameras from which to choose.
-            default_camera: The default selected camera. None for no default.
+            message: The message to send to the user: either text or an embed.
+            default_camera: The default selected camera, or none for no default
+            selection. Defaults to None.
+            edit_response: Whether to edit the interaction response (True) or
+            send a followup message (False). Defaults to True.
             cancel_danger: Whether the cancel button should be red/danger (True)
             or gray/secondary (False).
         """
 
-        _log.debug('Creating CameraSelector view')
-        super().__init__()
+        super().__init__(
+            interaction=interaction,
+            callback=callback,
+            callback_cancel=on_cancel,
+            edit_response=edit_response
+        )
 
         # TODO prevent exceeding the limit of 25 menu options
 
         self.cameras: dict[str, GCamera] = cameras
+        self.message: str | discord.Embed = message
 
         # Add the selection menu
         self.add_item(Dropdown(cameras, default_camera, callback))
 
-        # Add the cancel callback
-        self.on_cancel: Callable[[], Awaitable[None]] = on_cancel
+        # Create the cancel button, which runs the cancel callback
+        self.create_button(
+            label='Cancel',
+            style=ButtonStyle.danger if cancel_danger
+            else ButtonStyle.secondary,
+            emoji=settings.EMOJI_CANCEL,
+            callback=self.run_cancel_callback
+        )
 
-        # If cancel shouldn't use the danger style, set to secondary style
-        if not cancel_danger:
-            utils.get_button(self, 'Cancel').style = ButtonStyle.secondary
+        _log.debug('Created a CameraSelector view')
 
-    @ui.button(label='Cancel', style=ButtonStyle.danger,
-               emoji=settings.EMOJI_CANCEL, row=1)
-    async def cancel(self,
-                     interaction: discord.Interaction,
-                     _: ui.Button) -> None:
-        """
-        Cancel this selector.
+    async def build_embed(self, *args, **kwargs) -> Optional[Embed]:
+        return NotImplemented
 
-        Args:
-            interaction: The interaction.
-            _: This button.
-        """
+    async def refresh_display(self, *args, **kwargs) -> None:
+        func = self.interaction.edit_original_response if self.edit_response \
+            else self.interaction.followup.send
 
-        await interaction.response.defer()
-        await self.on_cancel()
+        if isinstance(self.message, str):
+            content = self.message
+            embed = None
+        else:
+            content = None
+            embed = self.message
 
-    @classmethod
-    async def create_selector(cls,
-                              callback: Callable[[GCamera], Awaitable[None]],
-                              on_cancel: Callable[[], Awaitable[None]],
-                              message: str | discord.Embed,
-                              cameras: dict[str, GCamera] = None,
-                              interaction: discord.Interaction = None,
-                              edit: bool = True,
-                              default_camera: Optional[GCamera] = None,
-                              cancel_danger: bool = True):
-        """
-        Create a new camera selector, and send it.
-
-        Args:
-            callback: The async function to call when the user selects a camera.
-            on_cancel: The async function to call if the user clicks Cancel.
-            cameras: The list of cameras from which to choose. If this is empty
-            or None, the list of all detected cameras is used.
-            interaction: The interaction to which to send the selector.
-            message: The message text or embed to send to the user.
-            edit: Whether to edit the original response to that interaction
-            (True) or send a follow-up to a deferred interaction (False).
-            default_camera: The default selected camera. Defaults to None.
-            cancel_danger: Whether the cancel button should be red/danger (True)
-            or gray/secondary (False). Defaults to True.
-
-        Raises:
-            NoCameraFound: If no cameras are provided, and none are detected
-            on the system.
-        """
-
-        # Get all cameras, if omitted
-        if not cameras:
-            cameras = await generate_camera_dict()
-
-        # Generate the camera selector view
-        view = cls(callback, on_cancel, cameras, default_camera, cancel_danger)
-
-        # Send it
-        if interaction:
-            if isinstance(message, str):
-                content = message
-                embed = None
-            else:
-                content = None
-                embed = message
-
-            # Either update the original message, or send a followup
-            if edit:
-                await interaction.edit_original_response(
-                    content=content, embed=embed, view=view
-                )
-            else:
-                await interaction.followup.send(
-                    content=content, embed=embed, view=view
-                )
+        await func(content=content, embed=embed, view=self)

@@ -4,7 +4,8 @@ import inspect
 import logging
 from typing import Awaitable, Callable, Iterable, Optional
 
-from discord import ButtonStyle, Embed, Interaction, SelectOption, ui
+from discord import (ButtonStyle, Embed, Interaction,
+                     Member, SelectOption, ui, User)
 from discord.ext.commands import Bot
 
 from gphotobot.utils import utils
@@ -17,9 +18,21 @@ class BaseView(ui.View, ABC):
                  interaction: Interaction[Bot],
                  callback: Optional[Callable[..., Awaitable[None]]] = None,
                  callback_cancel: Optional[Callable[...,
-                 Awaitable[None]]] = None) -> None:
+                 Awaitable[None]]] = None,
+                 restrict_to_owner: bool = True,
+                 permission_error_msg: str = '',
+                 edit_response: bool = True) -> None:
         """
         Initialize the base view.
+
+        By default, this implements restricts on who can use the view. Only the
+        user who triggered the initial interaction can interact with any of
+        the components in this view. This can be disabled by setting
+        restrict_to_owner to False. If another user tries to interact with a
+        component, they'll get an ephemeral error message. It starts "Sorry,
+        you do not have permission to do that." To add additional information
+        to the error message after this line, include the permission_error_msg
+        argument.
 
         Args:
             interaction: The interaction used by this view whenever the display
@@ -29,17 +42,38 @@ class BaseView(ui.View, ABC):
             omitted with no effect, as it's only used by the subclass.
             callback_cancel: A separate function to call when this view is
             cancelled. Defaults to None.
+            restrict_to_owner: Whether to block users who didn't create the view
+            from interacting with it. Defaults to True.
+            permission_error_msg: Additional information to include in an error
+            message when restrict_to_owner is True. Defaults to an empty string.
+            edit_response: Whether to edit the original interaction response
+            when refreshing the display (True) or send a followup (False).
+            Defaults to True.
         """
 
         super().__init__(timeout=None)
+
         self.interaction: Interaction[Bot] = interaction
+
         self.callback = callback
         self.callback_cancel = callback_cancel
 
+        self.restrict_to_owner: bool = restrict_to_owner
+        self.permission_error_msg: str = permission_error_msg
+        self.edit_response: bool = edit_response
+
+    @property
+    def user(self) -> User | Member:
+        return self.interaction.user
+
     @abstractmethod
-    async def build_embed(self) -> Optional[Embed]:
+    async def build_embed(self, *args, **kwargs) -> Optional[Embed]:
         """
         Build the embed for this view.
+
+        Args:
+            *args: Optional additional arguments.
+            **kwargs: Optional additional keyword arguments.
 
         Returns:
             The embed, or None if this view doesn't use embeds.
@@ -47,14 +81,54 @@ class BaseView(ui.View, ABC):
 
         pass
 
-    async def refresh_display(self) -> None:
+    async def refresh_display(self, *args, **kwargs) -> None:
         """
         Refresh this view's display by editing the interaction message.
+
+        If self.edit_response is False, this sends a new followup message rather
+        than editing the original.
+
+        Args:
+            *args: Optional arguments to pass to build_embed().
+            **kwargs: Optional keyword arguments to pass to build_embed().
         """
 
-        await self.interaction.edit_original_response(
-            content='', embed=await self.build_embed(), view=self
+        func = self.interaction.edit_original_response if self.edit_response \
+            else self.interaction.followup.send
+
+        await func(
+            content='',
+            embed=await self.build_embed(*args, **kwargs),
+            view=self
         )
+
+    async def interaction_check(self, interaction: Interaction) -> bool:
+        """
+        Validate incoming interactions. If restrict_to_owner is True, this sends
+        an error message whenever someone besides the owner tries to use it and
+        prevents the interaction from being passed to any components in the
+        view.
+
+        Args:
+            interaction: The incoming interaction.
+
+        Returns:
+            True if and only if the interaction is accepted.
+        """
+
+        # If restricted to owner, make sure this user is the owner
+        if self.restrict_to_owner and \
+                interaction.user.id != self.interaction.user.id:
+            # Send a permission error
+            embed = utils.contrived_error_embed(
+                text="Sorry, you don't have permission to do that. " +
+                     self.permission_error_msg
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return False
+
+        # Accept the interaction
+        return True
 
     def create_button(self,
                       label: str,

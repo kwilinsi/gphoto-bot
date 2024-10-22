@@ -16,7 +16,7 @@ from gphotobot.utils import utils
 from gphotobot.utils.base.view import BaseView
 from gphotobot.utils.base.confirmation_dialog import ConfirmationDialog
 from gphotobot.utils.validation_error import ValidationError
-from ..helper.camera_selector import CameraSelector
+from ..helper.camera_selector import CameraSelector, generate_camera_dict
 from ..timelapse import timelapse_utils
 from .change_directory_modal import ChangeDirectoryModal
 from .interval_modal import ChangeIntervalModal
@@ -47,9 +47,13 @@ class TimelapseCreator(BaseView):
             directory: The directory for storing timelapse photos.
         """
 
-        super().__init__(interaction)
+        super().__init__(
+            interaction=interaction,
+            permission_error_msg='Type `/timelapse create` '
+                                 'to make your own timelapse.'
+        )
+
         self._name = name
-        self.user: User | Member = interaction.user
         self._camera: Optional[GCamera] = camera
         self._directory: Optional[Path] = directory
 
@@ -593,16 +597,16 @@ class TimelapseCreator(BaseView):
 
         # Send a new camera selector view
         try:
-            await CameraSelector.create_selector(
+            await CameraSelector(
+                interaction=interaction,
                 callback=self.set_camera,
                 on_cancel=self.refresh_display,
+                cameras=await generate_camera_dict(),
                 message=f"Choose a{'' if self._camera is None else ' new'} "
                         f"timelapse camera from the list below:",
-                interaction=interaction,
-                edit=True,
                 default_camera=self._camera,
                 cancel_danger=False
-            )
+            ).refresh_display()
         except NoCameraFound:
             _log.warning(f"Failed to get a camera for timelapse '{self.name}'")
             embed = utils.contrived_error_embed(

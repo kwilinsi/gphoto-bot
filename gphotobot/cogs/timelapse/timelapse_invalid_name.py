@@ -29,7 +29,12 @@ class TimelapseInvalidNameView(BaseView):
             error: The error with info on why the name is invalid.
         """
 
-        super().__init__(interaction)
+        super().__init__(
+            interaction=interaction,
+            permission_error_msg='Type `/timelapse create` '
+                                 'to make your own timelapse.'
+        )
+
         self.error: InvalidTimelapseNameError = error
         self.name = error.name
 

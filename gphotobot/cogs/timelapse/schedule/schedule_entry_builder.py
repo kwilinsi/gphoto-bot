@@ -36,7 +36,13 @@ class ScheduleEntryBuilder(BaseView):
             one. Defaults to None.
         """
 
-        super().__init__(interaction, callback)
+        super().__init__(
+            interaction=interaction,
+            callback=callback,
+            permission_error_msg='Create a new timelapse with `/timelapse '
+                                 'create` to build a custom schedule.'
+        )
+
         self.entry: Optional[ScheduleEntry] = entry
 
         # If there's an existing entry, use its rule type as the default

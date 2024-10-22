@@ -40,7 +40,13 @@ class ScheduleEntrySelector(BaseView):
         """
 
         assert len(schedule) >= 2
-        super().__init__(interaction, callback, callback_cancel)
+        super().__init__(
+            interaction=interaction,
+            callback=callback,
+            callback_cancel=callback_cancel,
+            permission_error_msg='Create a new timelapse with `/timelapse '
+                                 'create` to build a custom schedule.'
+        )
 
         self.schedule: Schedule = schedule
         self.mode: Literal['edit', 'move', 'remove'] = mode

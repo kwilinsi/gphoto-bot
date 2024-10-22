@@ -50,7 +50,13 @@ class ScheduleBuilder(BaseView, TracksChanges):
             doesn't save any changes.
         """
 
-        super().__init__(interaction, callback, cancel_callback)
+        super().__init__(
+            interaction=interaction,
+            callback=callback,
+            callback_cancel=cancel_callback,
+            permission_error_msg='Create a new timelapse with `/timelapse '
+                                 'create` to build a custom schedule.'
+        )
 
         # Set the initial schedule, making a new one if none was given
         s = Schedule() if schedule is None else schedule

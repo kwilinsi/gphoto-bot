@@ -14,6 +14,7 @@ from gphotobot.libgphoto import GCamera, gmanager, gutils, NoCameraFound
 from gphotobot.libgphoto.rotation import Rotation
 from gphotobot.sql import async_session_maker
 from gphotobot.utils import const, utils
+from gphotobot.utils.base.view import BaseView
 from .helper.camera_selector import CameraSelector, generate_camera_dict
 
 _log = logging.getLogger(__name__)
@@ -99,14 +100,15 @@ class Camera(commands.GroupCog,
         if camera is None or not camera.strip():
             try:
                 # Send a camera selector
-                await CameraSelector.create_selector(
+                await CameraSelector(
+                    interaction=interaction,
                     callback=partial(CameraEditor.create_editor,
                                      interaction=interaction),
                     on_cancel=interaction.delete_original_response,
+                    cameras=await generate_camera_dict(),
                     message="Choose a camera from the list below to edit it:",
-                    interaction=interaction,
-                    edit=False
-                )
+                    edit_response=False
+                ).refresh_display()
             except NoCameraFound:
                 await gutils.handle_no_camera_error(interaction)
 
@@ -142,19 +144,19 @@ class Camera(commands.GroupCog,
         )
 
         # Send a camera selector
-        await CameraSelector.create_selector(
+        await CameraSelector(
+            interaction=interaction,
             callback=partial(
                 CameraEditor.create_editor, interaction=interaction
             ),
             on_cancel=interaction.delete_original_response,
-            message=embed,
             cameras=await generate_camera_dict(matching_cameras),
-            interaction=interaction,
-            edit=False
-        )
+            message=embed,
+            edit_response=False
+        ).refresh_display()
 
 
-class CameraEditor(ui.View):
+class CameraEditor(BaseView):
     def __init__(self, camera: GCamera, interaction: discord.Interaction):
         """
         Initialize a camera editor view on a given camera.
@@ -164,9 +166,10 @@ class CameraEditor(ui.View):
             interaction: The interaction. The original response is edited when
             refreshing the display.
         """
-
-        _log.debug(f"Creating a CameraEditor view for '{camera}'")
-        super().__init__()
+        super().__init__(
+            interaction,
+            permission_error_msg='Type `/camera edit` to edit a camera.'
+        )
 
         # The camera being edited
         self.camera: GCamera = camera
@@ -176,6 +179,8 @@ class CameraEditor(ui.View):
         self.message: Optional[InteractionMessage] = None
 
         self._embed: Optional[discord.Embed] = None
+
+        _log.debug(f"Created a CameraEditor view for '{camera}'")
 
     @classmethod
     async def create_editor(cls,
@@ -195,36 +200,26 @@ class CameraEditor(ui.View):
         # Create a view, and refresh the display to send it
         await cls(camera, interaction).refresh_display(rebuild=True)
 
-    async def get_embed(self, rebuild: bool = False) -> discord.Embed:
+    async def build_embed(self, rebuild: bool = False) -> discord.Embed:
         """
-        Get the message embed. If it doesn't exist yet, it is built.
+        Build the embed that constitutes the main message. This view is attached
+        to that message.
 
-        Args:
-            rebuild (bool, optional): Whether to rebuild the embed even if it
-            already exists. Defaults to False.
+        The embed is stored as self.embed. If rebuild is False and there is a
+        cached embed, that one is used instead.
 
         Returns:
-            discord.Embed: The embed.
+            The embed.
         """
 
-        if self._embed is None or rebuild:
-            return await self.build_embed()
-        else:
+        # Use a cached embed if available and rebuild isn't forced
+        if not rebuild and self._embed is not None:
             return self._embed
 
-    async def build_embed(self) -> discord.Embed:
-        """
-        Rebuild the embed that constitutes the main message. This view is
-        attached to that message.
-
-        The embed is stored as self.embed.
-
-        Returns:
-            discord.Embed: The embed.
-        """
-
+        # Get the camera name
         name = self.camera.trunc_name(const.EMBED_TITLE_LENGTH - 10)
 
+        # Build the embed
         self._embed = utils.default_embed(
             title='Editing | ' + name,
             description=await self.camera.info()
@@ -315,20 +310,7 @@ class CameraEditor(ui.View):
                                                     ephemeral=True)
         else:
             self.camera.set_rotate_preview(rot)
-            await self.refresh_display()
-
-    async def refresh_display(self, rebuild: bool = True) -> None:
-        """
-        Edit this view message, refreshing the display.
-
-        Args:
-            rebuild (bool, optional): Whether to rebuild the embed before
-            refreshing. Defaults to True.
-        """
-
-        await self.interaction.edit_original_response(
-            embed=await self.get_embed(rebuild), view=self
-        )
+            await self.refresh_display(rebuild=True)
 
 
 class RotationModal(ui.Modal, title='Change the Preview Rotation'):
