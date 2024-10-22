@@ -46,6 +46,19 @@ class Schedule(list[ScheduleEntry], TracksChanges):
 
         return cls(ScheduleEntry.from_db(r) for r in records)
 
+    def __str__(self) -> str:
+        """
+        Get a string with basic info about each entry in this schedule.
+
+        Returns:
+            A string with basic schedule info.
+        """
+
+        if len(self) == 0:
+            return 'Schedule(0 entries)'
+        else:
+            return f"Schedule[{', '.join(str(e) for e in self)}]"
+
     def append(self, entry: ScheduleEntry) -> None:
         """
         Validate a new entry. If it passes validation, add it to the schedule.

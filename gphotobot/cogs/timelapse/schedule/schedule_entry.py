@@ -103,6 +103,38 @@ class ScheduleEntry(TracksChanges):
     def config(self) -> dict[str, any]:
         return self._config.current
 
+    def __str__(self):
+        """
+        Get a string with some basic information about this schedule entry. This
+        tries to be reasonably succinct. The output format looks something like
+        this:
+
+        "entry(Mon/Wed; 4–8:30 PM; 1cfg)"
+
+        Returns:
+            A string with basic info.
+        """
+
+        start = utils.format_time(self.start_time)
+        end = utils.format_time(self.end_time)
+
+        # If the start and end are on the same side of the meridian, remove
+        # the meridiem indicator (i.e. AM/PM)
+        if start[-2:] == end[-2:]:
+            start = start[:-2].replace(' ', '')
+
+        return (f'entry({self.days.str_shortest()}; '
+                f'{start}–{end}; {len(self.config)}cfg)')
+
+    def __eq__(self, other):
+        if type(self) == type(other):
+            return self.days == other.days and \
+                self.start_time == other.start_time and \
+                self.end_time == other.end_time and \
+                self.config == other.config
+
+        return NotImplemented
+
     def has_changed(self) -> bool:
         return self._days.has_changed() or \
             self._start_time.has_changed() or \

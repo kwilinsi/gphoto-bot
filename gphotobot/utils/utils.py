@@ -265,15 +265,19 @@ def format_time(t: time | datetime | None = None,
     Given a `datetime.time`, format it nicely as a string. (This does not
     include the date portion if a datetime is given).
 
-    If the seconds are 0, the format is "%-I:%M:%S %p". If it doesn't include
-    seconds, the format is the slightly simpler: "%-I:%M %p".
-
-    If there are microseconds, those are included too.
+    This uses the simplest available format that includes all the time
+    information (though notably it uses AM/PM and not military time):
+    - If the minutes, seconds, and microseconds are all 0, it uses the simple
+      format "%-I%p".
+    - If there are minutes, but the seconds and microseconds are 0, it uses
+      "%-I:%M %p".
+    - If there are seconds but no microseconds, the format is "%-I:%M:%S %p".
+    - And with microseconds, it's "%-I:%M:%S.%f %p"
 
     The formatting can also be overridden with use_text in some cases. If True,
     midnight and noon use those words rather than a time format. Notably,
-    milliseconds greater than or equal to 0.9 can round up to midnight. For
-    example, "23:59:59.93" is considered midnight. Note that "midnight" and
+    milliseconds greater than or equal to 0.5 can round up to midnight. For
+    example, "23:59:59.52" is considered midnight. Note that "midnight" and
     "noon" are given in lowercase.
 
     Args:
@@ -286,6 +290,7 @@ def format_time(t: time | datetime | None = None,
         The formatted time.
     """
 
+    # If not given a time, use the current one. If given a datetime, convert it
     if t is None:
         t: time = datetime.now().time()
     elif isinstance(t, datetime):
@@ -294,19 +299,21 @@ def format_time(t: time | datetime | None = None,
     # Check for midnight/noon
     if use_text:
         if (t == time() or t.hour == 23 and t.minute == 59 and
-                t.second == 59 and t.microsecond >= 0.9):
+                t.second == 59 and t.microsecond >= 0.5):
             return "midnight"
         elif (t.hour == 12 and t.minute == 0 and
               t.second == 0 and t.microsecond == 0):
             return "noon"
 
-    # Parse time like normal
-    if t.second == 0 and t.microsecond == 0:
-        return t.strftime('%-I:%M %p')
-    elif t.microsecond == 0:
-        return t.strftime('%-I:%M:%S %p')
-    else:
+    # Parse time like normal, with preference to simpler formats
+    if t.microsecond != 0:
         return t.strftime('%-I:%M:%S.%f %p')
+    elif t.second != 0:
+        return t.strftime('%-I:%M:%S %p')
+    elif t.minute != 0:
+        return t.strftime('%-I:%M %p')
+    else:
+        return t.strftime('%-I%p')
 
 
 def parse_time_delta(s: str) -> Optional[timedelta]:

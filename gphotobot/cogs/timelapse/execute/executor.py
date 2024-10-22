@@ -130,7 +130,7 @@ class TimelapseExecutor(TaskLoop):
                 self.timelapse.end_time != tl.end_time or \
                 self.timelapse.start_time != tl.start_time or \
                 self.timelapse.total_frames != tl.total_frames or \
-                self.timelapse.schedule_entries != tl.schedule_entries:
+                self.schedule != Schedule.from_db(tl.schedule_entries):
             return False
 
         # Check the state
@@ -141,6 +141,7 @@ class TimelapseExecutor(TaskLoop):
             if self.timelapse.state not in ignore or tl.state not in ignore:
                 return False
 
+        # No changes found
         return True
 
     def determine_current_event(self, now: datetime) -> ExecutorEvent:
