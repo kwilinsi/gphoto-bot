@@ -71,10 +71,17 @@ class ExecutorEventQueue:
             # Get the lock to avoid processing an event while in the middle of
             # a delete or push operation. Also so we can pop.
             async with self._lock:
+                # Make sure the queue isn't empty
+                if len(self._queue) == 0:
+                    _log.warning('Unexpected: queue empty when about to '
+                                 f'process event {event}')
+                    return
+
+                # Get and remove (i.e. pop) the first element from the queue
                 e = heapq.heappop(self._queue)
 
-                # Make sure this task is still the heap invariant. If not, this
-                # probably should have been cancelled
+                # Make sure this event is still the heap invariant. If not,
+                # this probably should have been cancelled
                 if e != event:
                     _log.debug(f'While waiting to process {event}, it was '
                                f'displaced by {e}')

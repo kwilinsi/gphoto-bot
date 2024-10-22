@@ -283,6 +283,15 @@ class TimelapseExecutor(TaskLoop):
                 (State.PAUSED, State.FINISHED, State.READY):
             return 'cancel'
 
+        #################### FORCE RUNNING ####################
+
+        # If it's past the end time, but it's set to force run, we don't know
+        # when it'll end. Run indefinitely until the user stops it manually
+        if self.timelapse.end_time is not None and \
+            now >= self.timelapse.end_time and \
+            self.timelapse.state == State.FORCE_RUNNING:
+            return 'indefinite'
+
         #################### CHECK SCHEDULE ####################
 
         # If it has a schedule, get an event for the next schedule entry
@@ -324,7 +333,7 @@ class TimelapseExecutor(TaskLoop):
         if self.timelapse.state != event.state:
             self.timelapse.state = event.state
             _log.info(f'Timelapse {self.id} is now {event.state.name}')
-            await self.update_sql()
+            await self.update_db()
 
         if event.state in (State.READY, State.PAUSED, State.FINISHED):
             # The timelapse stopped; no need to update any settings. Cancel
@@ -343,7 +352,7 @@ class TimelapseExecutor(TaskLoop):
         elif not self.is_running() and do_run:
             self.start()
 
-    async def update_sql(self) -> None:
+    async def update_db(self) -> None:
         """
         Update the timelapse associated with this executor in the database.
         Something about the local timelapse object changed, and its changes must

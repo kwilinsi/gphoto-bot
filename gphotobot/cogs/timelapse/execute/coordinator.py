@@ -82,7 +82,7 @@ class Coordinator(TaskLoop, commands.Cog, metaclass=CogABCMeta):
              (f"removed {removed}" if removed > 0 else None)),
             omit_empty=True
         ) + f" timelapse executor{'' if n == 1 else 's'}"
-        _log.info('Synced timelapse coordinator list with database: ' +
+        _log.info('Synced timelapse executors with db: ' +
                   (changes if n else 'no changes made'))
 
     async def add_timelapse(self, tl: Timelapse) -> bool:
@@ -108,6 +108,11 @@ class Coordinator(TaskLoop, commands.Cog, metaclass=CogABCMeta):
         # adding this executor. It needs user input to do anything, and it'll
         # just be removed again as soon as the event is processed
         if event.state in (State.READY, State.PAUSED, State.FINISHED):
+            # But if the state is currently something else, fix it in the db
+            if executor.timelapse.state != event.state:
+                executor.timelapse.state = event.state
+                await executor.update_db()
+
             return False
 
         # Add this executor, and push its initial event to the queue
@@ -141,14 +146,14 @@ class Coordinator(TaskLoop, commands.Cog, metaclass=CogABCMeta):
         await executor.apply_event(event)
 
         # Get the next event to apply
-        event = await executor.determine_next_event(event.timestamp)
-        if event == 'cancel':
+        next_event = await executor.determine_next_event(event.timestamp)
+        if next_event == 'cancel':
             # Cancel again in case it was somehow missed by apply_event()
             if not executor.cancelling:
                 _log.info(f"Executor {executor} wasn't being cancelled despite "
                           f"returned 'cancel' from determine_next_event()")
                 executor.cancel()
-        elif event == 'indefinite':
+        elif next_event == 'indefinite':
             # Nothing to do here. The executor keeps running, but no more
             # events to apply
             _log.debug(
@@ -157,11 +162,11 @@ class Coordinator(TaskLoop, commands.Cog, metaclass=CogABCMeta):
             )
         else:
             # Already handled the literal cases. This prevents a type warning
-            assert isinstance(event, ExecutorEvent)
+            assert isinstance(next_event, ExecutorEvent)
 
             # Add this event to the queue
             async with self.queue_lock:
-                await self.queue.push(event)
+                await self.queue.push(next_event)
 
     async def remove_executor(self,
                               executor: TimelapseExecutor,
