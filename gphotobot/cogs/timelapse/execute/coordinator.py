@@ -110,6 +110,9 @@ class Coordinator(TaskLoop, commands.Cog, metaclass=CogABCMeta):
         if event.state in (State.READY, State.PAUSED, State.FINISHED):
             # But if the state is currently something else, fix it in the db
             if executor.timelapse.state != event.state:
+                _log.info('Correcting malformed db entry state from '
+                          f'{executor.timelapse.state.name} to '
+                          f'{event.state.name} for executor {executor}')
                 executor.timelapse.state = event.state
                 await executor.update_db()
 

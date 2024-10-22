@@ -40,6 +40,12 @@ class DaysOfWeek(set[DayEnum], Days):
         return self.__class__.__name__ + \
             '(' + self.single_letter_abbreviations() + ')'
 
+    def __eq__(self, other):
+        if type(other) is type(self):
+            return super().__eq__(other)
+
+        return NotImplemented
+
     #################### DAYS METHOD IMPLEMENTATIONS ####################
 
     # to_db alis for repr()

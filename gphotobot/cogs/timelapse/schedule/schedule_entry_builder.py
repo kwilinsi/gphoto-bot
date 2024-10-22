@@ -99,6 +99,8 @@ class ScheduleEntryBuilder(BaseView):
         if entry is not None:
             self.components = self.add_rule_specific_components(entry.days)
 
+        _log.debug(f'Created schedule entry builder on entry {entry}')
+
     async def build_embed(self) -> Embed:
         if self.entry is None:
             description = ("Schedule when the timelapse should run.\n\nCreate "
@@ -281,24 +283,25 @@ class ScheduleEntryBuilder(BaseView):
                     EVERY_DAY_OF_WEEK if every_day else ()
                 ))
             elif isinstance(self.entry.days, DaysOfWeek):
-                # If already using DaysOfWeek, the only thing to do is add every
-                # day if the user chose that option
                 change_components = False
-                if not every_day:
-                    return
 
-            # Replace with new Rules instance that uses either every day or none
-            self.entry.days = DaysOfWeek(
-                EVERY_DAY_OF_WEEK if every_day else ()
-            )
-
-            # If the components won't be changed next (i.e. it switched between
-            # "Days of the week" and "Every day") make sure the DayOfWeek
-            # dropdown menu has the right days selected
-            if not change_components:
-                utils.set_menu_default(
-                    self.components[0],
-                    tuple(d.name.capitalize() for d in self.entry.days)  # noqa
+                if every_day:
+                    # It's already using the DaysOfWeek dropdown. The user
+                    # switched to 'Every Day', so add all the days of the week
+                    self.entry.days.update(EVERY_DAY_OF_WEEK)  # noqa
+                    utils.set_menu_default(
+                        self.components[0],
+                        tuple(d.name.capitalize()
+                              for d in self.entry.days)  # noqa
+                    )
+                else:
+                    # The user went from 'Every day' to 'Days of the week'.
+                    # No changes are necessary at all
+                    pass
+            else:
+                # Replace with new Rules instance that uses every day or
+                self.entry.days = DaysOfWeek(
+                    EVERY_DAY_OF_WEEK if every_day else ()
                 )
 
         ##################################################

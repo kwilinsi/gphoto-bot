@@ -231,8 +231,3 @@ class Days(ABC):
         """
 
         pass
-
-    @abstractmethod
-    def __eq__(self, other: any) -> bool:
-        # Make sure subclasses support the == operator properly
-        pass

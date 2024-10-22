@@ -288,8 +288,8 @@ class TimelapseExecutor(TaskLoop):
         # If it's past the end time, but it's set to force run, we don't know
         # when it'll end. Run indefinitely until the user stops it manually
         if self.timelapse.end_time is not None and \
-            now >= self.timelapse.end_time and \
-            self.timelapse.state == State.FORCE_RUNNING:
+                now >= self.timelapse.end_time and \
+                self.timelapse.state == State.FORCE_RUNNING:
             return 'indefinite'
 
         #################### CHECK SCHEDULE ####################
@@ -346,9 +346,11 @@ class TimelapseExecutor(TaskLoop):
         if self.seconds != event.interval:
             self.change_interval(seconds=event.interval)
 
+        # If it should be (FORCE_)RUNNING, start this task loop. If it
+        # shouldn't be running, cancel it
         do_run = event.state in (State.RUNNING, State.FORCE_RUNNING)
         if self.is_running() and not do_run:
-            self.stop()
+            self.cancel()
         elif not self.is_running() and do_run:
             self.start()
 
@@ -359,7 +361,9 @@ class TimelapseExecutor(TaskLoop):
         be pushed to the db.
         """
 
+        _log.debug(f'Updating {self} timelapse record in db')
+
         async with (async_session_maker(expire_on_commit=False) as session,
-                    session.begin()):
+                    session.begin()):  # Read/write session with begin()
             session.add(self.timelapse)
             await session.commit()

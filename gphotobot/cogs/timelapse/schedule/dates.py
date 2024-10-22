@@ -95,6 +95,12 @@ class Dates(SortedSet[date], Days):
         date_str = ';'.join(d.strftime(self.DATE_FORMAT) for d in self)
         return f"{self.__class__.__name__}({date_str})"
 
+    def __eq__(self, other):
+        if type(other) is type(self):
+            return super().__eq__(other)
+
+        return NotImplemented
+
     #################### DAYS METHOD IMPLEMENTATIONS ####################
 
     # to_db alis for repr()
