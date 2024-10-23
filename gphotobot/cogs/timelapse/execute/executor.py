@@ -142,6 +142,7 @@ class TimelapseExecutor(TaskLoop):
                 self.timelapse.end_time != tl.end_time or \
                 self.timelapse.start_time != tl.start_time or \
                 self.timelapse.total_frames != tl.total_frames or \
+                self.timelapse.capture_interval != tl.capture_interval or \
                 self.schedule != Schedule.from_db(tl.schedule_entries):
             return False
 
