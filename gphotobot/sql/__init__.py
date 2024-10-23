@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import (AsyncEngine, AsyncSession,
                                     async_sessionmaker, create_async_engine)
 from sqlalchemy.engine import URL
 
-from gphotobot.conf import settings
+from gphotobot import settings
 from .models import cameras, timelapses, schedule_entries
 from .models.base import Base
 from .models.cameras import Camera

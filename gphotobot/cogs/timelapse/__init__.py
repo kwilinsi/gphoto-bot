@@ -1,6 +1,6 @@
 import logging
 
-from gphotobot.bot import GphotoBot
+from gphotobot import GphotoBot
 from .timelapse_cog import TimelapseCog
 from .execute.coordinator import Coordinator
 from . import execute

@@ -5,9 +5,8 @@ from datetime import date, datetime
 import logging
 from typing import Optional
 
+from gphotobot import const, utils
 from gphotobot.sql import ScheduleEntry as SQLScheduleEntry
-from gphotobot.utils import const, utils
-from gphotobot.utils.validation_error import ValidationError
 from .change_tracker import TracksChanges
 from .dates import Dates
 from .schedule_entry import ScheduleEntry
@@ -81,7 +80,7 @@ class Schedule(list[ScheduleEntry], TracksChanges):
         # ========== Check that it will run at least once ==========
 
         if not entry.days.does_ever_run():
-            raise ValidationError(
+            raise utils.ValidationError(
                 msg="This entry is invalid: it never runs. Make sure you "
                     "specify at least one day that it should run."
             )
@@ -95,7 +94,7 @@ class Schedule(list[ScheduleEntry], TracksChanges):
             for d in days:
                 if d < today:
                     delta = (today - d).days
-                    raise ValidationError(
+                    raise utils.ValidationError(
                         msg="Specific dates can't be in the past, but "
                             f"**{d.strftime('%Y-%m-%d')}** was **{delta}** "
                             f"day{'' if delta == 1 else 's'} ago."
@@ -104,7 +103,7 @@ class Schedule(list[ScheduleEntry], TracksChanges):
                         entry.start_time <= now:
                     start = datetime.combine(today, entry.start_time)
                     delta = utils.format_duration(datetime.now() - start)
-                    raise ValidationError(
+                    raise utils.ValidationError(
                         msg="Schedule entries for just one specific date can't "
                             "start in the past, but the rule on today, "
                             f"**{d.strftime('%Y-%m-%d')}**, starts "
@@ -126,7 +125,7 @@ class Schedule(list[ScheduleEntry], TracksChanges):
                 else:
                     s1, e1, s2, e2 = en_s, en_e, e_s, e_e
 
-                raise ValidationError(
+                raise utils.ValidationError(
                     msg="Two entries on the same exact day(s) can't have "
                         f"overlapping times. But **'{s1}'** to **'{e1}'** "
                         f"overlaps with **'{s2}'** to **'{e2}'**."

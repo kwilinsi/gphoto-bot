@@ -11,9 +11,8 @@ from discord.ext import commands
 import gphoto2 as gp
 from PIL import Image
 
-from gphotobot.conf import settings
-from gphotobot.libgphoto.rotation import Rotation
-from gphotobot.utils import const, utils
+from gphotobot import const, settings, utils
+from .rotation import Rotation
 
 _log = logging.getLogger(__name__)
 

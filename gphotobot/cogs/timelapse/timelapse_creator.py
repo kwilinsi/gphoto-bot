@@ -5,16 +5,13 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from discord import ButtonStyle, Embed, Interaction, ui, utils as discord_utils
+from discord import (ButtonStyle, Embed, Interaction, Message,
+                     ui, utils as discord_utils)
 from sqlalchemy.exc import SQLAlchemyError
 
-from gphotobot.conf import settings
+from gphotobot import GphotoBot, settings, utils
 from gphotobot.libgphoto import GCamera, gmanager, NoCameraFound
 from gphotobot.sql import async_session_maker, State, Timelapse
-from gphotobot.utils import utils
-from gphotobot.utils.base.view import BaseView
-from gphotobot.utils.base.confirmation_dialog import ConfirmationDialog
-from gphotobot.utils.validation_error import ValidationError
 from ..helper.camera_selector import CameraSelector, generate_camera_dict
 from ..timelapse import timelapse_utils
 from .change_directory_modal import ChangeDirectoryModal
@@ -29,9 +26,9 @@ from .validation import (InvalidTimelapseNameError, validate_name,
 _log = logging.getLogger(__name__)
 
 
-class TimelapseCreator(BaseView):
+class TimelapseCreator(utils.BaseView):
     def __init__(self,
-                 interaction: Interaction,
+                 parent: Interaction[GphotoBot] | utils.BaseView | Message,
                  name: str,
                  camera: Optional[GCamera],
                  directory: Optional[Path]):
@@ -39,15 +36,15 @@ class TimelapseCreator(BaseView):
         Create a new view for helping the user make a timelapse.
 
         Args:
-            interaction: The interaction that led to this view. This is used to
-            get the original message to edit it as changes are made.
+            parent: The interaction, view, or message to use when refreshing
+            the display.
             name: The already-validated name of the timelapse.
             camera: The camera to use for the timelapse.
             directory: The directory for storing timelapse photos.
         """
 
         super().__init__(
-            interaction=interaction,
+            parent=parent,
             permission_error_msg='Type `/timelapse create` '
                                  'to make your own timelapse.'
         )
@@ -121,16 +118,18 @@ class TimelapseCreator(BaseView):
         _log.info(f"Starting a new timelapse creator called '{name}'")
 
     @classmethod
-    async def create_new(cls,
-                         interaction: Interaction,
-                         name: str,
-                         do_validate: bool = True) -> None:
+    async def create_new(
+            cls,
+            parent: Interaction[GphotoBot] | utils.BaseView | Message,
+            name: str,
+            do_validate: bool = True) -> None:
         """
         Create a new timelapse creator view. This gets some default values and
         builds the initial timelapse creation panel.
 
         Args:
-            interaction: The interaction requesting to make a timelapse.
+            parent: The interaction, view, or message to use when refreshing
+            the display.
             name: The name of the timelapse.
             do_validate: Whether to validate the timelapse name before
             using it. Only disable if already validated. Defaults to True.
@@ -153,7 +152,7 @@ class TimelapseCreator(BaseView):
             camera = None  # Worry about this later
 
         # Build and send the timelapse creator view
-        await cls(interaction, name, camera, directory).refresh_display()
+        await cls(parent, name, camera, directory).refresh_display()
 
     @property
     def name(self) -> str:
@@ -338,7 +337,7 @@ class TimelapseCreator(BaseView):
 
         return self._schedule
 
-    async def build_embed(self) -> Embed:
+    async def build_embed(self, *args, **kwargs) -> Embed:
         """
         Construct an embed with the info about this timelapse. This embed is
         associated with the buttons in this view.
@@ -418,7 +417,7 @@ class TimelapseCreator(BaseView):
         # Validate the timelapse values to catch any problems
         try:
             self.validate()
-        except ValidationError as e:
+        except utils.ValidationError as e:
             await interaction.followup.send(embed=utils.contrived_error_embed(
                 title=f"Error: Invalid {e.attr}",
                 text=e.msg
@@ -443,8 +442,8 @@ class TimelapseCreator(BaseView):
         from .execute import TIMELAPSE_COORDINATOR
         await TIMELAPSE_COORDINATOR.create_executor(tl)
 
-        await ConfirmationDialog(
-            interaction=self.interaction,
+        await utils.ConfirmationDialog(
+            parent=self,
             title='Success!',
             description=f"Created the new timelapse **{self.safe_name()}** "
                         f"and saved it to the database."
@@ -488,19 +487,19 @@ class TimelapseCreator(BaseView):
         """
 
         if self.directory is None:
-            raise ValidationError(
+            raise utils.ValidationError(
                 attr='Directory',
                 msg='You must specify a directory for saving timelapse photos.'
             )
 
         if self.camera is None:
-            raise ValidationError(
+            raise utils.ValidationError(
                 attr='Camera',
                 msg='You must specify a camera to take the timelapse photos.'
             )
 
         if self.interval is None:
-            raise ValidationError(
+            raise utils.ValidationError(
                 attr='Interval',
                 msg='You must specify an overall interval between capturing '
                     'photos.'
@@ -539,7 +538,7 @@ class TimelapseCreator(BaseView):
         """
 
         await interaction.response.defer()
-        await self.interaction.delete_original_response()
+        await self.delete_original_message()
         self.stop()
 
     @ui.button(label='Change Name', style=ButtonStyle.secondary,
@@ -597,7 +596,7 @@ class TimelapseCreator(BaseView):
         # Send a new camera selector view
         try:
             await CameraSelector(
-                interaction=interaction,
+                parent=interaction,
                 callback=self.set_camera,
                 on_cancel=self.refresh_display,
                 cameras=await generate_camera_dict(),
@@ -656,7 +655,7 @@ class TimelapseCreator(BaseView):
 
         # Create a schedule builder
         await ScheduleBuilder(
-            self.interaction,
+            self,
             self._start_time,
             self._end_time,
             self._total_frames,

@@ -5,9 +5,8 @@ from typing import Optional
 
 from discord import Interaction, ui
 
+from gphotobot import utils
 from gphotobot.sql.models.timelapses import DIRECTORY_MAX_LENGTH
-from gphotobot.utils import utils
-from gphotobot.utils.validation_error import ValidationError
 from .validation import validate_directory
 
 _log = logging.getLogger(__name__)
@@ -56,7 +55,7 @@ class ChangeDirectoryModal(ui.Modal, title='Timelapse Directory'):
         # Validate the directory
         try:
             await self.callback(validate_directory(self.directory.value))
-        except ValidationError as error:
+        except utils.ValidationError as error:
             embed = utils.contrived_error_embed(
                 title='Error: Invalid Directory',
                 text=error.msg

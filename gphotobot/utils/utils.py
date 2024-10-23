@@ -1,29 +1,16 @@
-from datetime import datetime, time, timedelta
+from datetime import datetime, timezone
 import logging
 from pathlib import Path
-import pytz
-import re
-import traceback
 from typing import Awaitable, Callable, Collection, Iterable, Optional
 
-import discord
-from discord import app_commands, ui, utils as discord_utils
+from discord import (app_commands, Embed, Interaction,
+                     ui, utils as discord_utils)
 from discord.ext import commands
 
-from gphotobot.conf import settings
+from gphotobot import settings
 from . import const
 
 _log = logging.getLogger(__name__)
-
-# noinspection SpellCheckingInspection
-# This RegEx parses time durations written like this: "4hr 3m 2.5sec"
-TIME_DELTA_REGEX = (
-    r'^(?:(\d*\.?\d+|\d+\.)\s*(?:\s|y|yrs?|years?))?\s*'
-    r'(?:(\d*\.?\d+|\d+\.)\s*(?:\s|ds?|dys?|days?))?\s*'
-    r'(?:(\d*\.?\d+|\d+\.)\s*(?:\s|h|hours?|hrs?)?(?:\s*|:))??'
-    r'(?:(\d*\.?\d+|\d+\.)\s*(?:\s|m|minutes?|mins?)?(?:\s*|:))??'
-    r'(?:(\d*\.?\d+|\d+\.)\s*(?:s|seconds?|secs?)?)?$'
-)
 
 
 def list_to_str(items: Iterable[any],
@@ -153,220 +140,7 @@ def trunc(s: str,
             return s + ellipsis_str
 
 
-def latency(start: datetime, end: datetime = None) -> str:
-    """
-    Calculate latency, and format it nicely as a string.
-
-    Args:
-        start (datetime): The start time.
-        end (datetime, optional): The end time. If None, the current time is
-        used. Defaults to None.
-
-    Returns:
-        str: The latency as a nicely formatted string.
-    """
-
-    end = datetime.now(pytz.utc) if end is None \
-        else end.replace(tzinfo=pytz.utc)
-
-    delta = end - start.replace(tzinfo=pytz.utc)
-    sec = delta.total_seconds()
-
-    if sec >= 10:
-        return f'{sec:.1f} s'
-    elif sec >= 1:
-        return f'{sec:.2f} s'
-    else:
-        return f'{sec * 1000:.1f} ms'
-
-
-def format_duration(seconds: float | timedelta,
-                    always_decimal: bool = False,
-                    spaces: bool = True) -> str:
-    """
-    Take a timedelta or a float in seconds, and format it nicely as a string.
-
-    If less than 1 second: "0.00s"
-    If less than 10 seconds: "0.0s"
-
-    Otherwise, it's separated into years, days, hours, minutes, and seconds.
-    Any unit with a value >0 is included. Examples:
-        - "3h 7m 6s"
-        - "1d 5s"
-        - "7y 71d 10h 2m 55s"
-        - "9d"
-
-    Note that by the time you get to years, this isn't super accurate. It
-    assumes each year is exactly 365 days.
-
-    Args:
-        seconds: The number of seconds or a timedelta.
-        always_decimal: Whether to always include a decimal number of seconds,
-        if applicable. Maximum 3 decimal places. Defaults to False.
-        spaces: Whether to include spaces in the output string between each
-        unit of time. Defaults to True.
-
-    Returns:
-        str: The formatted time string.
-    """
-
-    # If it's a timedelta, convert to seconds
-    if isinstance(seconds, timedelta):
-        seconds = seconds.total_seconds()
-
-    # Separate rounding if always_decimal is disabled
-    if not always_decimal:
-        if seconds < 1:
-            return f'{seconds:.2f}s'
-        elif seconds < 10:
-            return f'{seconds:.1f}s'
-
-        # Omit decimals after the 10-second mark
-        seconds = int(seconds)
-
-    # Split units
-    minutes, seconds = divmod(seconds, 60)
-    hours, minutes = divmod(minutes, 60)
-    days, hours = divmod(hours, 24)
-    years, days = divmod(days, 365)
-
-    # If always_decimal is enabled, everything is currently a float
-    if always_decimal:
-        years = int(years)
-        days = int(days)
-        hours = int(hours)
-        minutes = int(minutes)
-        if int(seconds) == seconds:
-            seconds = int(seconds)
-        else:
-            seconds = round(seconds, 4)
-
-    # Build the formatted string
-    time_str = ''
-    if years > 0:
-        time_str += f' {years}y'
-    if days > 0:
-        time_str += f' {days}d'
-    if hours > 0:
-        time_str += f' {hours}h'
-    if minutes > 0:
-        time_str += f' {minutes}m'
-    if seconds > 0:
-        time_str += f' {seconds}s'
-
-    # Return the formatted string (sans the first character, a space) or with
-    # all spaces removed, if spaces == False
-    return time_str[1:] if spaces else time_str.replace(' ', '')
-
-
-def format_time(t: time | datetime | None = None,
-                use_text: bool = False) -> str:
-    """
-    Given a `datetime.time`, format it nicely as a string. (This does not
-    include the date portion if a datetime is given).
-
-    This uses the simplest available format that includes all the time
-    information (though notably it uses AM/PM and not military time):
-    - If the minutes, seconds, and microseconds are all 0, it uses the simple
-      format "%-I%p".
-    - If there are minutes, but the seconds and microseconds are 0, it uses
-      "%-I:%M %p".
-    - If there are seconds but no microseconds, the format is "%-I:%M:%S %p".
-    - And with microseconds, it's "%-I:%M:%S.%f %p"
-
-    The formatting can also be overridden with use_text in some cases. If True,
-    midnight and noon use those words rather than a time format. Notably,
-    milliseconds greater than or equal to 0.5 can round up to midnight. For
-    example, "23:59:59.52" is considered midnight. Note that "midnight" and
-    "noon" are given in lowercase.
-
-    Args:
-        t: The time to format. If None, the current time is used. Defaults to
-        None.
-        use_text: Replace certain times (midnight and noon) with text rather
-        than a time. Defaults to False.
-
-    Returns:
-        The formatted time.
-    """
-
-    # If not given a time, use the current one. If given a datetime, convert it
-    if t is None:
-        t: time = datetime.now().time()
-    elif isinstance(t, datetime):
-        t: time = t.time()
-
-    # Check for midnight/noon
-    if use_text:
-        if (t == time() or t.hour == 23 and t.minute == 59 and
-                t.second == 59 and t.microsecond >= 0.5):
-            return "midnight"
-        elif (t.hour == 12 and t.minute == 0 and
-              t.second == 0 and t.microsecond == 0):
-            return "noon"
-
-    # Parse time like normal, with preference to simpler formats
-    if t.microsecond != 0:
-        return t.strftime('%-I:%M:%S.%f %p')
-    elif t.second != 0:
-        return t.strftime('%-I:%M:%S %p')
-    elif t.minute != 0:
-        return t.strftime('%-I:%M %p')
-    else:
-        return t.strftime('%-I%p')
-
-
-def parse_time_delta(s: str) -> Optional[timedelta]:
-    """
-    Take a string representing a duration of time, parse it, and return an
-    appropriate timedelta. It is case-insensitive.
-
-    If the string is unparseable, it returns None. This shouldn't raise any
-    exceptions.
-
-    Note that this uses the conversion 1 year = 365 days. It does not take into
-    account leap years. (But if you're making a timelapse that takes one photo
-    every year, should you really be using a Discord bot to control it?)
-
-    This supports strings in a few formats, such as:
-    - "1y 2d 40h 2m 1s"
-    - "5.2 yrs 18ds 0.001seconds"
-    - "8:23m"
-    - "1:05sec"
-    - "30:00" (30 minutes, not 30 hours)
-
-    Args:
-        s: The string to parse.
-
-    Returns:
-        The parsed timedelta, or None if the string cannot be parsed.
-    """
-
-    if not s:
-        return None
-
-    match = re.match(TIME_DELTA_REGEX, s.strip().lower(), re.IGNORECASE)
-
-    if not match:
-        return None
-
-    # Extract units
-    y = match.group(1)
-    d = match.group(2)
-    h = match.group(3)
-    m = match.group(4)
-    s = match.group(5)
-
-    # Combine into a timedelta
-    return timedelta(
-        days=float(y if y else 0) * 365 + float(d if d else 0),
-        hours=float(h if h else 0),
-        minutes=float(m if m else 0),
-        seconds=float(s if s else 0)
-    )
-
-
-def default_embed(**kwargs) -> discord.Embed:
+def default_embed(**kwargs) -> Embed:
     """
     Generate an embed with the default color and the current timestamp. All
     parameters are passed to discord.Embed().
@@ -375,14 +149,14 @@ def default_embed(**kwargs) -> discord.Embed:
         discord.Embed: The new embed.
     """
 
-    return discord.Embed(
+    return Embed(
         color=settings.DEFAULT_EMBED_COLOR,
-        timestamp=datetime.now(pytz.utc),
+        timestamp=datetime.now(timezone.utc),
         **kwargs
     )
 
 
-def app_command_name(interaction: Optional[discord.Interaction]) -> str:
+def app_command_name(interaction: Interaction | None) -> str:
     """
     Get the fully qualified name of an app command. This is equivalent to
     calling interaction.command.qualified_name, except that slash commands are
@@ -414,199 +188,8 @@ def app_command_name(interaction: Optional[discord.Interaction]) -> str:
         return name
 
 
-def format_traceback_frame(frame: str) -> str:
-    """
-    Improve the formatting of a traceback frame. This is a helper function for
-    format_traceback().
-
-    Args:
-        frame (str): The frame to format.
-
-    Returns:
-        str: The formatted frame.
-    """
-
-    frame = re.sub(r'\^{5,}', '', frame)
-    return frame.strip()
-
-
-def format_traceback(error: Exception, lines: int) -> str:
-    """
-    Get a formatted code block string with the last few lines of the traceback
-    that caused an error.
-
-    Args:
-        error (Exception): The error with the associated traceback.
-        lines (int): The number of lines to retrieve.
-
-    Returns:
-        str: The stacktrace as a formatted string.
-    """
-
-    # Format the last lines of the stacktrace
-    tb = error.__traceback__
-    stack = [format_traceback_frame(l)
-             for l in traceback.format_tb(tb, -lines)]
-
-    # Count the number of frames
-    frames = 0
-    while tb:
-        frames += 1
-        tb = tb.tb_next
-
-    # Trim down the stacktrace until it fits in a field
-    while True:
-        merged = '\n\n'.join(stack)
-
-        # Make a header to show the number of omitted frames
-        omitted_frames = frames - len(stack)
-        if omitted_frames == 1:
-            header = "[1 frame]\n\n"
-        elif omitted_frames > 1:
-            header = f"[{omitted_frames} frames]\n\n"
-        else:
-            header = ''
-
-        # If it's too long, shorten it
-        # Note: 9 == len("```\n\n```") in format string
-        if len(merged) + len(header) + 8 > const.EMBED_FIELD_VALUE_LENGTH:
-            # If this is the last frame left, truncate it
-            if len(stack) == 1:
-                merged = trunc(
-                    merged,
-                    const.EMBED_FIELD_VALUE_LENGTH - 8 - len(header)
-                )
-                break
-            else:
-                # Otherwise, just delete the first frame
-                del stack[0]
-        else:
-            break
-
-    # Return the formatted stacktrace
-    return f'```\n{header}{merged}\n```'
-
-
-def error_embed(error: Exception,
-                text: str,
-                title: str = 'Error',
-                show_details: bool = True,
-                show_traceback: bool = False) -> discord.Embed:
-    """
-    Generate a fancy embed with info about an error.
-
-    Args:
-        error (Exception): The error.
-        text (str): Text explaining what went wrong.
-        title (str): The title of the embed. Defaults to 'Error'.
-        show_details (bool, optional): Whether to add a field to the embed that
-        gives the exception class name and the error message. Defaults to True.
-        show_traceback (bool, optional): Whether to include the last few
-        lines of the traceback in a field. This can be enabled even when
-        show_details is False. Defaults to False.
-
-    Returns:
-        discord.Embed: The embed.
-    """
-
-    # Build the initial embed
-    embed = contrived_error_embed(text=text, title=title)
-
-    # Add exception details, if enabled
-    if show_details:
-        err_str = str(error) if str(error) else '*[No details given]*'
-
-        embed.add_field(
-            name=trunc(error.__class__.__name__,
-                       const.EMBED_FIELD_NAME_LENGTH),
-            value=trunc(err_str, const.EMBED_FIELD_VALUE_LENGTH),
-            inline=False
-        )
-
-    # Add traceback, if enabled
-    if show_traceback:
-        stack = format_traceback(
-            error=error,
-            lines=settings.ERROR_TRACEBACK_LENGTH
-        )
-
-        if stack:
-            embed.add_field(
-                name='Traceback',
-                value=stack,
-                inline=False
-            )
-
-    return embed
-
-
-def contrived_error_embed(text: str,
-                          title: str = 'Error') -> discord.Embed:
-    """
-    Create an embed with a contrived error message: that is, an error that did
-    not originate from an actual exception. This has no exception class name,
-    exception message, or stacktrace.
-
-    Args:
-        text (str): The error message.
-        title (str, optional): The embed title. Defaults to 'Error'.
-
-    Returns:
-        discord.Embed: The embed.
-    """
-
-    return discord.Embed(
-        title=title,
-        description=text,
-        color=settings.ERROR_EMBED_COLOR,
-        timestamp=datetime.now(pytz.utc)
-    )
-
-
-async def handle_err(interaction: discord.Interaction[commands.Bot],
-                     error: Exception,
-                     text: str,
-                     log_text: str = None,
-                     title: str = 'Error',
-                     show_details: bool = True,
-                     show_traceback: bool = False) -> None:
-    """
-    Nicely handle generic errors, sending some info to the user in an embed and
-    logging it.
-
-    Args:
-        interaction (discord.Interaction[commands.Bot]): The interaction to
-        which to send the error message.
-        error (Exception): The error.
-        text (str): Text explaining what went wrong.
-        log_text (str): Separate text to use for the log description. If this
-        is None or empty, the same text is used for the Discord error message
-        and log. Defaults to None.
-        title (str): The title of the embed. Defaults to 'Error'.
-        show_details (bool, optional): Add details. Defaults to True.
-        show_traceback (bool, optional): Add traceback. Defaults to False.
-    """
-
-    # Build an embed to nicely display the error
-    embed = error_embed(
-        error=error,
-        text=text,
-        title=title,
-        show_details=show_details,
-        show_traceback=show_traceback
-    )
-
-    # Send the error message
-    await update_interaction(interaction, embed)
-
-    # Log details
-    log_text = log_text if log_text else text if text else '[No details given]'
-    _log.error(f'{log_text}: {error}')
-    _log.debug(f'Traceback on {error.__class__.__name__}:', exc_info=True)
-
-
-async def update_interaction(interaction: discord.Interaction[commands.Bot],
-                             embed: discord.Embed) -> None:
+async def update_interaction(interaction: Interaction[commands.Bot],
+                             embed: Embed) -> None:
     # If the interaction command in None, the command is probably
     # unrecognized (due to sync not updating yet). We'll just respond normally,
     # as this is likely the first response
@@ -692,8 +275,8 @@ def get_unique_path(path: Path, condition: Callable[[Path], bool]) -> Path:
     return path
 
 
-def get_button(parent: discord.ui.View,
-               label: str) -> Optional[discord.ui.Button]:
+def get_button(parent: ui.View,
+               label: str) -> Optional[ui.Button]:
     """
     Get the button attached to a parent view by specifying that buttons' label.
 
@@ -706,16 +289,16 @@ def get_button(parent: discord.ui.View,
     """
 
     for child in parent.children:
-        if isinstance(child, discord.ui.Button):
+        if isinstance(child, ui.Button):
             if child.label == label:
                 return child
 
     return None
 
 
-def deferred(callback: Callable[[discord.Interaction, ...], Awaitable] | \
-                       Callable[[discord.Interaction], Awaitable]) -> \
-        Callable[[discord.Interaction], Awaitable]:
+def deferred(callback: Callable[[Interaction, ...], Awaitable] | \
+                       Callable[[Interaction], Awaitable]) -> \
+        Callable[[Interaction], Awaitable]:
     """
     Given a callback function that accepts an interaction, wrap it such that the
     interaction is immediately deferred.
@@ -729,7 +312,7 @@ def deferred(callback: Callable[[discord.Interaction, ...], Awaitable] | \
         An async wrapper around the callback that defers the interaction.
     """
 
-    async def defer(interaction: discord.Interaction, *args, **kwargs) -> any:
+    async def defer(interaction: Interaction, *args, **kwargs) -> any:
         await interaction.response.defer()
         # Include *args and **kwargs just in case more arguments were given
         return await callback(interaction, *args, **kwargs)

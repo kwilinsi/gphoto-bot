@@ -2,7 +2,7 @@ from collections.abc import Sequence, Iterable
 from datetime import date, datetime, timedelta
 from typing import Optional, Union
 
-from . import utils
+from .. import utils
 
 # Fixed 1-day offset
 ONE_DAY = timedelta(days=1)

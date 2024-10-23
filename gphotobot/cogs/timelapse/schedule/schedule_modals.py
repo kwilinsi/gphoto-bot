@@ -6,8 +6,7 @@ from typing import Literal, Optional
 import dateutil.parser
 from discord import Interaction, ui, TextStyle, utils as discord_utils
 
-from gphotobot.utils import utils
-from gphotobot.utils.validation_error import ValidationError
+from gphotobot import utils
 from .dates import Dates
 
 _log = logging.getLogger(__name__)
@@ -79,7 +78,7 @@ class ScheduleRuntimeModal(ui.Modal, title='Schedule Runtime'):
         try:
             start = self.parse_time(self.start_time.value, 'Start')
             end = self.parse_time(self.end_time.value, 'End', start)
-        except ValidationError as e:
+        except utils.ValidationError as e:
             # Send the error message
             embed = utils.contrived_error_embed(
                 title=f'Error: Invalid {e.attr}',
@@ -108,20 +107,20 @@ class ScheduleRuntimeModal(ui.Modal, title='Schedule Runtime'):
             The parsed time.
 
         Raises:
-            ValidationError: If the time is invalid. This explains what's wrong
+            utils.ValidationError: If the time is invalid. This explains what's wrong
             with it with a user-friendly message.
         """
 
         if time_str is None or not time_str.strip():
-            raise ValidationError(attr=boundary + ' Time',
-                                  msg='You must specify both the start and '
-                                      'end time.')
+            raise utils.ValidationError(attr=boundary + ' Time',
+                                        msg='You must specify both the start and '
+                                            'end time.')
 
         try:
             parsed_time: datetime = dateutil.parser.parse(time_str)
         except ValueError:
             clean: str = discord_utils.escape_markdown(time_str)
-            raise ValidationError(
+            raise utils.ValidationError(
                 attr=boundary + ' Time',
                 msg=f"The {boundary.lower()} time **\"{clean}\"** is invalid. "
                     "Enter a date or time in a standard format (e.g. "
@@ -129,7 +128,7 @@ class ScheduleRuntimeModal(ui.Modal, title='Schedule Runtime'):
             )
         except OverflowError:
             clean: str = discord_utils.escape_markdown(time_str)
-            raise ValidationError(
+            raise utils.ValidationError(
                 attr=boundary + ' Time',
                 msg=f"The {boundary.lower()} time **\"{clean}\"** couldn't "
                     "be understood properly. It may have too large of numbers "
@@ -139,7 +138,7 @@ class ScheduleRuntimeModal(ui.Modal, title='Schedule Runtime'):
 
         # The user should only give a time, not a date
         if parsed_time.date() != datetime.now().date():
-            raise ValidationError(
+            raise utils.ValidationError(
                 attr=boundary + ' Time',
                 msg=f"Do not specify a date in the runtime. The days that use "
                     "this start/end time are determined by a separate rule in "
@@ -153,7 +152,7 @@ class ScheduleRuntimeModal(ui.Modal, title='Schedule Runtime'):
         if start_time is not None and parsed_time <= start_time:
             clean: str = utils.format_time(parsed_time)
             start: str = utils.format_time(start_time)
-            raise ValidationError(
+            raise utils.ValidationError(
                 attr=boundary + ' Time',
                 msg=f"The end time **\"{clean}\"** is invalid. It must come "
                     f"after the start time **\"{start}\"**."
@@ -205,7 +204,7 @@ class SpecificDatesModal(ui.Modal, title='Add Dates'):
         then running the callback function.
 
         This doesn't check to make sure that the user isn't adding too many
-        dates. However, it does catch ValidationErrors thrown by the callback
+        dates. However, it does catch utils.ValidationErrors thrown by the callback
         function and pass them along to the user.
 
         Args:
@@ -234,7 +233,7 @@ class SpecificDatesModal(ui.Modal, title='Add Dates'):
             for date_str in date_strs:
                 if date_str.strip():
                     parsed_dates.append(self.parse_time(date_str))
-        except ValidationError as e:
+        except utils.ValidationError as e:
             # Send the error message
             embed = utils.contrived_error_embed(
                 title='Error: Invalid Date',
@@ -259,7 +258,7 @@ class SpecificDatesModal(ui.Modal, title='Add Dates'):
         # Pass parsed dates to the callback function
         try:
             await self.callback(parsed_dates, self.adding)
-        except ValidationError as e:
+        except utils.ValidationError as e:
             # Send the error message
             embed = utils.contrived_error_embed(title=e.attr, text=e.msg)
             await interaction.followup.send(embed=embed, ephemeral=True)
@@ -278,7 +277,7 @@ class SpecificDatesModal(ui.Modal, title='Add Dates'):
             The parsed date.
 
         Raises:
-            ValidationError: If the date is invalid. This explains what's wrong
+            utils.ValidationError: If the date is invalid. This explains what's wrong
             with it with a user-friendly message.
         """
 
@@ -288,13 +287,13 @@ class SpecificDatesModal(ui.Modal, title='Add Dates'):
             parsed: datetime = dateutil.parser.parse(date_string)
         except ValueError:
             clean: str = utils.trunc(date_string, 100, escape_markdown=True)
-            raise ValidationError(
+            raise utils.ValidationError(
                 msg=f"The date **\"{clean}\"** is invalid. Enter a date in a "
                     f"standard format, such as {self.get_examples()}."
             )
         except OverflowError:
             clean: str = utils.trunc(date_string, 100, escape_markdown=True)
-            raise ValidationError(
+            raise utils.ValidationError(
                 msg=f"The date **\"{clean}\"** couldn't be understood "
                     f"properly. It may have too large of numbers or too many "
                     "decimals. Please try using a standard date format, such "
@@ -303,7 +302,7 @@ class SpecificDatesModal(ui.Modal, title='Add Dates'):
 
         # The user should only give a time, not a date
         if parsed.time() != time():
-            raise ValidationError(
+            raise utils.ValidationError(
                 msg=f"Do not specify a time. That is controlled separately "
                     "and applied to all the dates in this schedule entry."
             )
@@ -321,7 +320,7 @@ class SpecificDatesModal(ui.Modal, title='Add Dates'):
                 diff = 'two days ago'
             else:
                 diff = f"{diff} days ago"
-            raise ValidationError(
+            raise utils.ValidationError(
                 msg=f"The date **\"{clean}\"** is invalid. Dates can't be in "
                     f"the past, but that was **\"{diff}\"**."
             )

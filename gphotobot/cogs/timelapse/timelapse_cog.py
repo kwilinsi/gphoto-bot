@@ -8,9 +8,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.sql import func
 
-from gphotobot.bot import GphotoBot
+from gphotobot import const, GphotoBot, utils
 from gphotobot.libgphoto import GCamera, gmanager, gutils, NoCameraFound
-from gphotobot.utils import const, utils
 from gphotobot.sql import async_session_maker, State, timelapses, Timelapse
 from gphotobot.sql.models.timelapses import NAME_MAX_LENGTH
 from .control_panel import TimelapseControlPanel

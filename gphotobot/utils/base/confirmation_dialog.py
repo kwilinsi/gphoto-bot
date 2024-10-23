@@ -1,15 +1,14 @@
-from typing import Optional
+from discord import ButtonStyle, Embed, Interaction, Message
+from discord.ext.commands import Bot
 
-from discord import ButtonStyle, Embed, Interaction
-
-from gphotobot.conf import settings
+from gphotobot import settings
 from .. import utils
 from .view import BaseView
 
 
 class ConfirmationDialog(BaseView):
     def __init__(self,
-                 interaction: Interaction,
+                 parent: Interaction[Bot] | BaseView | Message,
                  title: str = 'Success',
                  description: str = 'Finished Successfully',
                  **kwargs) -> None:
@@ -18,16 +17,17 @@ class ConfirmationDialog(BaseView):
         static embed and a "Done" button to dismiss it.
 
         Args:
-            interaction: The interaction to edit.
+            parent: The interaction, view, or message to use when refreshing
+            the display.
             title: The embed title.
             description: The embed description.
             **kwargs: Additional keyword arguments passed to the embed.
         """
 
-        super().__init__(interaction)
+        super().__init__(parent=parent)
 
         # Create the static, default embed
-        self.embed = utils.default_embed(
+        self.embed: Embed = utils.default_embed(
             title=title,
             description=description,
             **kwargs
@@ -41,9 +41,9 @@ class ConfirmationDialog(BaseView):
             callback=lambda _: self.done()
         )
 
-    async def build_embed(self) -> Optional[Embed]:
+    async def build_embed(self, *args, **kwargs) -> Embed:
         return self.embed
 
     async def done(self) -> None:
         self.stop()
-        await self.interaction.delete_original_response()
+        await self.delete_original_message()

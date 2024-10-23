@@ -7,14 +7,13 @@ from typing import Literal, Optional
 from discord import Embed
 from sqlalchemy import func, select
 
-from gphotobot.conf import settings
+from gphotobot import settings, utils
 from gphotobot.sql import async_session_maker
 from gphotobot.sql.models.timelapses import (Timelapse, NAME_MAX_LENGTH,
                                              DIRECTORY_MAX_LENGTH)
-from gphotobot.utils import utils
-from gphotobot.utils.validation_error import ValidationError
 
 _log = logging.getLogger(__name__)
+
 
 class InvalidTimelapseNameError(Exception):
     def __init__(self,
@@ -169,7 +168,7 @@ def validate_directory(directory: str) -> Path:
     """
 
     if not directory:
-        raise ValidationError(msg='You must specify a directory.')
+        raise utils.ValidationError(msg='You must specify a directory.')
 
     # Record whether it's already too long; might use this later. (Note that
     # this function is not structured optimally for speed. It's meant to give
@@ -192,7 +191,7 @@ def validate_directory(directory: str) -> Path:
         name = utils.trunc(
             directory.name, 100, ellipsis_str=ext, escape_markdown=True
         )
-        raise ValidationError(
+        raise utils.ValidationError(
             msg=f"**{name}** is a file, not a directory." + note
         )
 
@@ -211,20 +210,19 @@ def validate_directory(directory: str) -> Path:
         name = utils.trunc(name, 100, escape_markdown=True, reverse=reverse)
         n = len(list(directory.iterdir()))
 
-        raise ValidationError(
+        raise utils.ValidationError(
             msg=f"The timelapse directory must be empty, but **{name}** "
                 f"contains {n} item{'' if n == 1 else 's'}." + note
         )
 
     # Can't be too long
     if len(str(directory)) > DIRECTORY_MAX_LENGTH:
-        raise ValidationError(
+        raise utils.ValidationError(
             msg=f"The directory path must not exceed {DIRECTORY_MAX_LENGTH} "
                 "characters." + ('' if base_is_too_long else note)
         )
 
     return directory
-
 
 
 def determine_default_directory(name: str) -> Optional[Path]:

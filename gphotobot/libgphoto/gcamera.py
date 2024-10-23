@@ -12,9 +12,8 @@ import gphoto2 as gp
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from gphotobot.conf import TMP_DATA_DIR, settings
+from gphotobot import const, settings, utils, TMP_DATA_DIR
 from gphotobot.sql import async_session_maker, Camera as DBCameras
-from gphotobot.utils import const, utils
 from .rotation import Rotation
 from . import gutils
 

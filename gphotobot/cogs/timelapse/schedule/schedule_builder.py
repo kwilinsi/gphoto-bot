@@ -3,12 +3,9 @@ from datetime import datetime
 import logging
 from typing import Literal, Optional
 
-from discord import ButtonStyle, Embed, Interaction
+from discord import ButtonStyle, Embed, Interaction, Message
 
-from gphotobot.conf import settings
-from gphotobot.utils import utils
-from gphotobot.utils.validation_error import ValidationError
-from gphotobot.utils.base.view import BaseView
+from gphotobot import GphotoBot, settings, utils
 from ..runtime_modal import ChangeRuntimeModal
 from .. import timelapse_utils
 from .change_tracker import ChangeTracker, TracksChanges
@@ -20,9 +17,9 @@ from .schedule_entry_selector import ScheduleEntrySelector
 _log = logging.getLogger(__name__)
 
 
-class ScheduleBuilder(BaseView, TracksChanges):
+class ScheduleBuilder(utils.BaseView, TracksChanges):
     def __init__(self,
-                 interaction: Interaction,
+                 parent: Interaction[GphotoBot] | utils.BaseView | Message,
                  start_time: Optional[datetime],
                  end_time: Optional[datetime],
                  total_frames: Optional[int],
@@ -38,7 +35,8 @@ class ScheduleBuilder(BaseView, TracksChanges):
         timelapse Schedule.
 
         Args:
-            interaction: The interaction to edit with this view.
+            parent: The interaction, view, or message to use when refreshing
+            the display.
             start_time: The current overall runtime start.
             end_time: The current overall runtime end.
             total_frames: The current total frame threshold for ending.
@@ -51,7 +49,7 @@ class ScheduleBuilder(BaseView, TracksChanges):
         """
 
         super().__init__(
-            interaction=interaction,
+            parent=parent,
             callback=callback,
             callback_cancel=cancel_callback,
             permission_error_msg='Create a new timelapse with `/timelapse '
@@ -148,7 +146,7 @@ class ScheduleBuilder(BaseView, TracksChanges):
         # Use "Change Overall Runtime" if any of the runtime parameters are set
         self.update_runtime_button()
 
-    async def build_embed(self) -> Embed:
+    async def build_embed(self, *args, **kwargs) -> Embed:
         """
         Construct an embed with the info about this schedule. This embed is
         associated with the buttons in this view.
@@ -304,7 +302,7 @@ class ScheduleBuilder(BaseView, TracksChanges):
             await self.refresh_display()
 
         # Send a view for making a new entry
-        await ScheduleEntryBuilder(self.interaction, callback).refresh_display()
+        await ScheduleEntryBuilder(self, callback).refresh_display()
 
     async def select_button_entry(
             self,
@@ -359,7 +357,7 @@ class ScheduleBuilder(BaseView, TracksChanges):
 
         # There are multiple entries. Create and send a selector to pick one
         await ScheduleEntrySelector(
-            self.interaction,
+            self,
             self.schedule.current,
             mode,
             self.entry_button_callback,  # This is never used in 'move' mode
@@ -384,7 +382,7 @@ class ScheduleBuilder(BaseView, TracksChanges):
                 await self.refresh_display()
 
             await ScheduleEntryBuilder(
-                self.interaction,
+                self,
                 callback,
                 self.schedule.current[index]
             ).refresh_display()
@@ -403,5 +401,7 @@ class ScheduleBuilder(BaseView, TracksChanges):
             self.update_save_cancel_buttons()
             await self.refresh_display()
         else:
-            raise ValidationError("Invalid mode for selection entry; expected "
-                                  f"'edit' or 'remove'; got '{mode}'")
+            raise utils.ValidationError(
+                "Invalid mode for selection entry; expected "
+                f"'edit' or 'remove'; got '{mode}'"
+            )

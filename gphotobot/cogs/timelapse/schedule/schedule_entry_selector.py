@@ -2,18 +2,17 @@ from collections.abc import Awaitable, Callable
 import logging
 from typing import Literal, Optional
 
-from discord import ButtonStyle, Embed, Interaction, SelectOption, ui
+from discord import ButtonStyle, Embed, Interaction, Message, SelectOption, ui
 
-from gphotobot.conf import settings
-from gphotobot.utils.base.view import BaseView
-from gphotobot.utils import utils
+from gphotobot import GphotoBot, settings, utils
 from .schedule import Schedule
 
 _log = logging.getLogger(__name__)
 
-class ScheduleEntrySelector(BaseView):
+
+class ScheduleEntrySelector(utils.BaseView):
     def __init__(self,
-                 interaction: Interaction,
+                 parent: Interaction[GphotoBot] | utils.BaseView | Message,
                  schedule: Schedule,
                  mode: Literal['edit', 'move', 'remove'],
                  callback: Callable[[Literal['edit', 'remove'], int],
@@ -24,7 +23,8 @@ class ScheduleEntrySelector(BaseView):
         one of the schedule entries, either to edit it or delete it.
 
         Args:
-            interaction: The interaction to edit.
+            parent: The interaction, view, or message to use when refreshing
+            the display.
             schedule: The schedule with entries to choose from. This must
             contain at least two entries; otherwise a selection menu wouldn't be
             necessary.
@@ -41,7 +41,7 @@ class ScheduleEntrySelector(BaseView):
 
         assert len(schedule) >= 2
         super().__init__(
-            interaction=interaction,
+            parent=parent,
             callback=callback,
             callback_cancel=callback_cancel,
             permission_error_msg='Create a new timelapse with `/timelapse '
@@ -91,7 +91,7 @@ class ScheduleEntrySelector(BaseView):
         _log.debug(f'Created a schedule entry selector with {len(schedule)} '
                    f'entries')
 
-    async def build_embed(self) -> Embed:
+    async def build_embed(self, *args, **kwargs) -> Embed:
         # Set the description based on whether something is currently selected
         if self.index is None:
             desc = ('Select one of the following entries to '

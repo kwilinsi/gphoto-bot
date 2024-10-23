@@ -1,33 +1,44 @@
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
+import asyncio
+from datetime import datetime, timedelta, timezone
 from functools import partial
 import inspect
 import logging
 from typing import Awaitable, Callable, Iterable, Optional
 
-from discord import (ButtonStyle, Embed, Interaction,
-                     Member, SelectOption, ui, User)
+from discord import (ButtonStyle, Embed, Interaction, Member,
+                     Message, SelectOption, ui, User)
 from discord.ext.commands import Bot
 
-from gphotobot.utils import utils
+from gphotobot import utils
 
 _log = logging.getLogger(__name__)
 
 
 class BaseView(ui.View, ABC):
     def __init__(self,
-                 interaction: Interaction[Bot],
+                 parent: Interaction[Bot] | BaseView | Message,
+                 user: User | Member | None = None,
                  callback: Optional[Callable[..., Awaitable[None]]] = None,
                  callback_cancel: Optional[Callable[...,
                  Awaitable[None]]] = None,
                  restrict_to_owner: bool = True,
-                 permission_error_msg: str = '',
-                 edit_response: bool = True) -> None:
+                 permission_error_msg: str = '') -> None:
         """
         Initialize the base view.
 
-        By default, this implements restricts on who can use the view. Only the
-        user who triggered the initial interaction can interact with any of
-        the components in this view. This can be disabled by setting
+        This is based on some parent: either the interaction that led to its
+        creation, another BaseView, a Discord message, or the snowflake id of
+        some message. Either way this extracts the original message from that
+        parent. That way, when the display is refreshed, it's possible to edit
+        the original message. We can't use an interaction to do this, because
+        interactions.
+
+        By default, this implements restrictions on who can use the view.
+        Only the user who triggered the initial interaction can interact with
+        any of the components in this view. This can be disabled by setting
         restrict_to_owner to False. If another user tries to interact with a
         component, they'll get an ephemeral error message. It starts "Sorry,
         you do not have permission to do that." To add additional information
@@ -35,8 +46,10 @@ class BaseView(ui.View, ABC):
         argument.
 
         Args:
-            interaction: The interaction used by this view whenever the display
-            is refreshed. Often, this is the interaction of a parent view.
+            parent: The interaction, view, or message to use when refreshing
+            the display.
+            user: The user who created and owns this view. If None, this is
+            obtained from the parent, provided that it's an interaction or view.
             callback: The function to call when this view is "submitted" or
             "saved" or the user clicks "done." It is asynchronous. This can be
             omitted with no effect, as it's only used by the subclass.
@@ -46,25 +59,35 @@ class BaseView(ui.View, ABC):
             from interacting with it. Defaults to True.
             permission_error_msg: Additional information to include in an error
             message when restrict_to_owner is True. Defaults to an empty string.
-            edit_response: Whether to edit the original interaction response
-            when refreshing the display (True) or send a followup (False).
-            Defaults to True.
         """
 
         super().__init__(timeout=None)
 
-        self.interaction: Interaction[Bot] = interaction
+        # Save a reference to the parent for getting the message and user
+        self.parent: Interaction[Bot] | BaseView | Message = parent
 
+        # This is the message to edit when refreshing this view
+        if isinstance(parent, BaseView):
+            self._message: Message | None = parent._message
+        else:
+            self._message: Message | None = None
+            asyncio.create_task(self.get_message())
+
+        # Set the user. If it's None, try to get it from the parent
+        self.user: User | Member | None
+        if user is None and (isinstance(parent, Interaction) or
+                             isinstance(parent, BaseView)):
+            self.user = parent.user
+        else:
+            self.user = None
+
+        # Store callbacks
         self.callback = callback
         self.callback_cancel = callback_cancel
 
+        # Store other configurations
         self.restrict_to_owner: bool = restrict_to_owner
         self.permission_error_msg: str = permission_error_msg
-        self.edit_response: bool = edit_response
-
-    @property
-    def user(self) -> User | Member:
-        return self.interaction.user
 
     @abstractmethod
     async def build_embed(self, *args, **kwargs) -> Optional[Embed]:
@@ -81,22 +104,90 @@ class BaseView(ui.View, ABC):
 
         pass
 
+    async def get_message(self) -> Message:
+        """
+        Return the message containing this view. If the message is unknown and
+        hasn't been cached yet, this attempts to fetch it from the parent
+        interaction.
+
+        Returns:
+            The message.
+
+        Raises:
+            ValueError: If the message can't be obtained.
+        """
+
+        # Return the cached message, if available
+        if self._message is not None:
+            return self._message
+
+        # If it's an interaction, fetch the original response
+        if isinstance(self.parent, Interaction):
+            self._message = await self.parent.original_response()
+            return self._message
+        else:
+            raise ValueError("Can't get the message for a view")
+
+    async def edit_original_message(self, *args, **kwargs) -> None:
+        """
+        Edit the original message behind this view. This message is obtained
+        from the view's parent.
+
+        Args:
+            *args: Positional arguments to pass to the edit function.
+            **kwargs: Keyword arguments to pass to the edit function.
+        """
+
+        if self._message is not None:
+            # If there's a cached message object, use that
+            await self._message.edit(*args, **kwargs)
+        elif isinstance(self.parent, Interaction) and \
+                self.parent.created_at + timedelta(minutes=14, seconds=50) > \
+                datetime.now(timezone.utc):
+            # If the parent is an interaction that won't expire within the next
+            # 10 seconds, use it
+            if self.parent.response.is_done():
+                # If we already responded, we can edit the message
+                await self.parent.edit_original_response(*args, **kwargs)
+            else:
+                # Otherwise, send an initial response
+                await self.parent.response.send_message(*args, **kwargs)
+        else:
+            raise ValueError("Can't edit the original message")
+
+    async def delete_original_message(self,
+                                      delay: Optional[float] = None) -> None:
+        """
+        Delete the original message behind this view. This message is obtained
+        from the view's parent.
+
+        Args:
+            delay: The number of seconds to wait in the background before
+            deleting the message, if supported. Defaults to None.
+        """
+
+        if self._message is not None:
+            # If there's a cached message object, use that
+            await self._message.delete(delay=delay)
+        elif isinstance(self.parent, Interaction) and \
+                self.parent.created_at + timedelta(minutes=14, seconds=50) > \
+                datetime.now(timezone.utc):
+            # If the parent is an interaction that won't expire within the next
+            # 10 seconds, use it
+            await self.parent.delete_original_response()
+        else:
+            raise ValueError("Can't delete the original message")
+
     async def refresh_display(self, *args, **kwargs) -> None:
         """
         Refresh this view's display by editing the interaction message.
-
-        If self.edit_response is False, this sends a new followup message rather
-        than editing the original.
 
         Args:
             *args: Optional arguments to pass to build_embed().
             **kwargs: Optional keyword arguments to pass to build_embed().
         """
 
-        func = self.interaction.edit_original_response if self.edit_response \
-            else self.interaction.followup.send
-
-        await func(
+        await self.edit_original_message(
             content='',
             embed=await self.build_embed(*args, **kwargs),
             view=self
@@ -118,8 +209,8 @@ class BaseView(ui.View, ABC):
 
         # If the interacting user is the owner, or we aren't restricting to the
         # owner, allow the interaction to go through
-        if not self.restrict_to_owner or \
-                interaction.user.id == self.interaction.user.id:
+        if self.user is None or not self.restrict_to_owner or \
+                interaction.user.id == self.user.id:
             return True
 
         # Send a permission error

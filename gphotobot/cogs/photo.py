@@ -6,9 +6,7 @@ from discord import app_commands
 from discord.ext import commands
 from gphoto2 import GPhoto2Error
 
-from gphotobot.bot import GphotoBot
-from gphotobot.conf import APP_NAME, settings
-from gphotobot.utils import utils
+from gphotobot import APP_NAME, GphotoBot, settings, utils
 from gphotobot.libgphoto import gmanager, gutils, NoCameraFound
 
 _log = logging.getLogger(__name__)

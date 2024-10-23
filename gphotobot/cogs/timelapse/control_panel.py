@@ -7,11 +7,9 @@ from typing import Optional
 from discord import ButtonStyle, Interaction, Embed, utils as discord_utils
 from gphoto2 import GPhoto2Error
 
-from gphotobot.conf import settings
+from gphotobot import settings, utils
 from gphotobot.libgphoto import GCamera, gutils
 from gphotobot.sql import async_session_maker, State, Timelapse
-from gphotobot.utils import utils
-from gphotobot.utils.base.view import BaseView
 from . import timelapse_utils
 from .execute import Coordinator, TimelapseExecutor
 from .schedule.schedule import Schedule
@@ -19,7 +17,7 @@ from .schedule.schedule import Schedule
 _log = logging.getLogger(__name__)
 
 
-class TimelapseControlPanel(BaseView):
+class TimelapseControlPanel(utils.BaseView):
     def __init__(self,
                  interaction: Interaction,
                  timelapse: Timelapse,
@@ -197,7 +195,7 @@ class TimelapseControlPanel(BaseView):
     def state(self, state: State) -> None:
         self.timelapse.state = state
 
-    async def build_embed(self) -> Optional[Embed]:
+    async def build_embed(self, *args, **kwargs) -> Embed:
         """
         Build an embed with information about the timelapse.
 
@@ -655,7 +653,7 @@ class TimelapseControlPanel(BaseView):
             _: The interaction that triggered this UI event.
         """
 
-        await self.interaction.delete_original_response()
+        await self.delete_original_message()
         self.stop()
 
     async def clicked_preview(self, interaction: Interaction) -> None:

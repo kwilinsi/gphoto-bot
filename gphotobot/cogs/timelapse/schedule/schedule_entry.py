@@ -3,8 +3,8 @@ from __future__ import annotations
 from datetime import date, datetime, time, timedelta
 from typing import Optional
 
+from gphotobot import const, utils
 from gphotobot.sql import ScheduleEntry as SQLScheduleEntry
-from gphotobot.utils import const, utils
 from .change_tracker import ChangeTracker, TracksChanges
 from .days import Days
 from .days_of_week import DaysOfWeek

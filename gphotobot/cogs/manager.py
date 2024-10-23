@@ -8,9 +8,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from gphotobot.bot import GphotoBot
-from gphotobot.utils import const, utils
-from gphotobot.conf import APP_NAME, settings
+from gphotobot import APP_NAME, const, GphotoBot, settings, utils
 from . import Extensions
 
 _log = logging.getLogger(__name__)

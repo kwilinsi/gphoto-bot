@@ -4,10 +4,10 @@ import logging
 import asyncio
 import gphoto2 as gp
 
-from .bot import GphotoBot
-from .conf import settings, logger_conf
-from .libgphoto import gmanager, NoCameraFound
 from . import sql
+from .bot import GphotoBot
+from .conf import logger_conf, settings
+from .libgphoto import gmanager, NoCameraFound
 
 
 def parse_args():

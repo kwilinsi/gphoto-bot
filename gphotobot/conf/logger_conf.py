@@ -2,7 +2,7 @@ import coloredlogs
 import logging.handlers
 from pathlib import Path
 
-from gphotobot.conf import settings, DATA_DIR, APP_NAME
+from . import settings, DATA_DIR, APP_NAME
 
 
 def configure():

@@ -6,16 +6,15 @@ from datetime import datetime
 import logging
 from typing import Literal, Union
 
+from gphotobot import utils
 from gphotobot.sql import async_session_maker, State, Timelapse
-from gphotobot.utils import utils
-from gphotobot.utils.base.task_loop import TaskLoop
 from .executor_event import ExecutorEvent
 from ..schedule.schedule import Schedule
 
 _log = logging.getLogger(__name__)
 
 
-class TimelapseExecutor(TaskLoop):
+class TimelapseExecutor(utils.TaskLoop):
     def __init__(self,
                  timelapse: Timelapse,
                  stop_callback: Callable[[TimelapseExecutor],

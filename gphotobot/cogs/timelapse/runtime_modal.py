@@ -6,9 +6,7 @@ import dateutil.parser
 import discord
 from discord import ui, utils as discord_utils
 
-from gphotobot.utils import utils
-
-from gphotobot.utils.validation_error import ValidationError
+from gphotobot import utils
 
 _log = logging.getLogger(__name__)
 
@@ -100,7 +98,7 @@ class ChangeRuntimeModal(ui.Modal, title='Timelapse Runtime Config'):
             start = self.parse_time(self.start_time.value, 'Start')
             end = self.parse_time(self.end_time.value, 'End', start)
             total_frames = self.parse_total_frames(self.total_frames.value)
-        except ValidationError as e:
+        except utils.ValidationError as e:
             # Send the error message
             embed = utils.contrived_error_embed(
                 title=f'Error: Invalid {e.attr}',
@@ -144,7 +142,7 @@ class ChangeRuntimeModal(ui.Modal, title='Timelapse Runtime Config'):
             clean: str = discord_utils.escape_markdown(time)
             some_time: str = ((datetime.today() + timedelta(days=1, minutes=85))
                               .strftime('%Y-%m-%d %I:%M:%S %p'))
-            raise ValidationError(
+            raise utils.ValidationError(
                 attr=boundary + ' Time',
                 msg=f"The {boundary.lower()} time **\"{clean}\"** is invalid. "
                     "Enter a date or time in a standard format (e.g. "
@@ -152,7 +150,7 @@ class ChangeRuntimeModal(ui.Modal, title='Timelapse Runtime Config'):
             )
         except OverflowError:
             clean: str = discord_utils.escape_markdown(time)
-            raise ValidationError(
+            raise utils.ValidationError(
                 attr=boundary + ' Time',
                 msg=f"The {boundary.lower()} time **\"{clean}\"** couldn't "
                     "be understood properly. It may have too large of numbers "
@@ -167,7 +165,7 @@ class ChangeRuntimeModal(ui.Modal, title='Timelapse Runtime Config'):
             else:
                 clean: str = time.strftime(self.DATE_TIME_FORMAT)
 
-            raise ValidationError(
+            raise utils.ValidationError(
                 attr=boundary + ' Time',
                 msg=f"The {boundary.lower()} time is invalid. Both the start "
                     f"and end times must be in the future, but **\"{clean}\"** "
@@ -184,7 +182,7 @@ class ChangeRuntimeModal(ui.Modal, title='Timelapse Runtime Config'):
                 clean: str = time.strftime(self.DATE_TIME_FORMAT)
                 start: str = start_time.strftime(self.DATE_TIME_FORMAT)
 
-            raise ValidationError(
+            raise utils.ValidationError(
                 attr=boundary + ' Time',
                 msg=f"The end time **\"{clean}\"** is invalid. It must come "
                     f"after the start time **\"{start}\"**."
@@ -215,7 +213,7 @@ class ChangeRuntimeModal(ui.Modal, title='Timelapse Runtime Config'):
             assert int_frames == frames
         except ValueError:
             clean: str = discord_utils.escape_markdown(frames)
-            raise ValidationError(
+            raise utils.ValidationError(
                 attr='Total Frame Count',
                 msg=f"Invalid total frames **\"{clean}\"**. The total "
                     "frame count is the number of pictures to take "
@@ -224,7 +222,7 @@ class ChangeRuntimeModal(ui.Modal, title='Timelapse Runtime Config'):
             )
         except AssertionError:
             clean: str = discord_utils.escape_markdown(frames)
-            raise ValidationError(
+            raise utils.ValidationError(
                 attr='Total Frame Count',
                 msg=f"Invalid total frames **\"{clean}\"**. The total "
                     "frame count must be a whole number of frames. It can't "
@@ -233,7 +231,7 @@ class ChangeRuntimeModal(ui.Modal, title='Timelapse Runtime Config'):
 
         # Make sure it's positive
         if int_frames <= 0:
-            raise ValidationError(
+            raise utils.ValidationError(
                 attr='Total Frame Count',
                 msg=f"Invalid total frames **\"{int_frames}\"**. The total "
                     "frame count must be a positive number."

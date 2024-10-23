@@ -4,9 +4,8 @@ from collections.abc import Iterable
 from datetime import date, datetime, timedelta
 from typing import Optional
 
-from gphotobot.utils import utils
-from gphotobot.utils.days_of_week import (EVERY_DAY_OF_WEEK, WEEK_DAYS,
-                                          WEEKENDS, DayOfWeek as DayEnum)
+from gphotobot import utils
+from gphotobot.utils import DayOfWeek as DayEnum
 from .days import Days
 
 
@@ -24,7 +23,7 @@ class DaysOfWeek(set[DayEnum], Days):
 
     @classmethod
     def every_day(cls) -> DaysOfWeek:
-        return DaysOfWeek(EVERY_DAY_OF_WEEK)
+        return DaysOfWeek(utils.EVERY_DAY_OF_WEEK)
 
     def __repr__(self):
         """
@@ -307,8 +306,8 @@ class DaysOfWeek(set[DayEnum], Days):
         elif n == 1:
             return 'Once every week'
         elif n == 2:
-            return 'On weekends' if self == WEEKENDS else 'Twice per week'
-        elif n == 5 and self == WEEK_DAYS:
+            return 'On weekends' if self == utils.WEEKENDS else 'Twice per week'
+        elif n == 5 and self == utils.WEEK_DAYS:
             return 'On weekdays'
         elif n == 7:
             return 'Every day'
@@ -323,4 +322,4 @@ class DaysOfWeek(set[DayEnum], Days):
             A list of days (in order).
         """
 
-        return sorted(EVERY_DAY_OF_WEEK - self)
+        return sorted(utils.EVERY_DAY_OF_WEEK - self)

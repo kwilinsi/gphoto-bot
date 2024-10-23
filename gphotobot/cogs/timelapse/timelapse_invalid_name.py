@@ -1,10 +1,8 @@
 import logging
-from typing import Optional
 
-from discord import ButtonStyle, Embed, Interaction, ui
+from discord import ButtonStyle, Embed, Interaction, Message, ui
 
-from gphotobot.conf import settings
-from gphotobot.utils.base.view import BaseView
+from gphotobot import GphotoBot, settings, utils
 from .new_name_modal import NewNameModal
 from .timelapse_creator import TimelapseCreator
 from .validation import InvalidTimelapseNameError
@@ -12,25 +10,26 @@ from .validation import InvalidTimelapseNameError
 _log = logging.getLogger(__name__)
 
 
-class TimelapseInvalidNameView(BaseView):
+class TimelapseInvalidNameView(utils.BaseView):
     # The maximum number of attempts the user can make with the same problem
     # before this view is auto cancelled
     MAX_CONSECUTIVE_ATTEMPTS: int = 5
 
     def __init__(self,
-                 interaction: Interaction,
+                 parent: Interaction[GphotoBot] | utils.BaseView | Message,
                  error: InvalidTimelapseNameError):
         """
         Initialize an invalid name taken view to tell the user that they need
         to pick a different name (and help them do so).
 
         Args:
-            interaction: The interaction that triggered this view.
+            parent: The interaction, view, or message to use when refreshing
+            the display.
             error: The error with info on why the name is invalid.
         """
 
         super().__init__(
-            interaction=interaction,
+            parent=parent,
             permission_error_msg='Type `/timelapse create` '
                                  'to make your own timelapse.'
         )
@@ -42,7 +41,7 @@ class TimelapseInvalidNameView(BaseView):
         # with the same problem
         self.attempt: int = 1
 
-    async def build_embed(self) -> Optional[Embed]:
+    async def build_embed(self, *args, **kwargs) -> NotImplemented:
         return NotImplemented
 
     async def new_invalid_name(self, error: InvalidTimelapseNameError) -> None:
@@ -92,9 +91,7 @@ class TimelapseInvalidNameView(BaseView):
             self.error = error
             embed = self.error.build_embed()
 
-        await self.interaction.edit_original_response(
-            embed=embed, view=self
-        )
+        await self.edit_original_message(embed=embed, view=self)
 
     @ui.button(label='Change Name', style=ButtonStyle.primary,
                emoji=settings.EMOJI_EDIT)
@@ -125,7 +122,7 @@ class TimelapseInvalidNameView(BaseView):
         """
 
         await TimelapseCreator.create_new(
-            self.interaction,
+            self,
             name,
             do_validate=False
         )
@@ -146,4 +143,4 @@ class TimelapseInvalidNameView(BaseView):
 
         self.stop()
         await interaction.response.defer()  # acknowledge the interaction
-        await self.interaction.delete_original_response()
+        await self.delete_original_message()

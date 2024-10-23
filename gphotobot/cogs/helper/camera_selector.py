@@ -4,13 +4,10 @@ import logging
 from typing import Optional
 
 import discord
-from discord import ButtonStyle, ui, Embed
+from discord import ButtonStyle, Embed, Interaction, Message, ui
 
-from gphotobot.conf import settings
-from gphotobot.libgphoto import gmanager
-from gphotobot.libgphoto.gcamera import GCamera
-from gphotobot.utils import const, utils
-from gphotobot.utils.base.view import BaseView
+from gphotobot import const, settings, utils
+from gphotobot.libgphoto import GCamera, gmanager
 
 _log = logging.getLogger(__name__)
 
@@ -153,38 +150,34 @@ class Dropdown(ui.Select):
         await self.callback_camera(camera)
 
 
-class CameraSelector(BaseView):
+class CameraSelector(utils.BaseView):
     def __init__(self,
-                 interaction: discord.Interaction,
+                 parent: Interaction | utils.BaseView | Message,
                  callback: Callable[[GCamera], Awaitable[None]],
                  on_cancel: Callable[[], Awaitable[None]],
                  cameras: dict[str, GCamera],
                  message: str | discord.Embed,
                  default_camera: Optional[GCamera] = None,
-                 edit_response: bool = True,
                  cancel_danger: bool = True):
         """
         Create a view allowing the user to select a camera.
 
         Args:
-            interaction: The interaction that triggered this UI event.
+            parent: The parent interaction, message, or view.
             callback: The async function to call whTen a camera is selected.
             on_cancel: The async function to call if the user clicks Cancel.
             cameras: The list of cameras from which to choose.
             message: The message to send to the user: either text or an embed.
             default_camera: The default selected camera, or none for no default
             selection. Defaults to None.
-            edit_response: Whether to edit the interaction response (True) or
-            send a followup message (False). Defaults to True.
             cancel_danger: Whether the cancel button should be red/danger (True)
             or gray/secondary (False).
         """
 
         super().__init__(
-            interaction=interaction,
+            parent=parent,
             callback=callback,
-            callback_cancel=on_cancel,
-            edit_response=edit_response
+            callback_cancel=on_cancel
         )
 
         # TODO prevent exceeding the limit of 25 menu options
@@ -210,14 +203,14 @@ class CameraSelector(BaseView):
         return NotImplemented
 
     async def refresh_display(self, *args, **kwargs) -> None:
-        func = self.interaction.edit_original_response if self.edit_response \
-            else self.interaction.followup.send
-
+        content = embed = None
         if isinstance(self.message, str):
             content = self.message
-            embed = None
         else:
-            content = None
             embed = self.message
 
-        await func(content=content, embed=embed, view=self)
+        await self.edit_original_message(
+            content=content,
+            embed=embed,
+            view=self
+        )

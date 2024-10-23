@@ -6,13 +6,9 @@ from typing import Optional
 
 from discord.ext import commands
 
-from gphotobot.bot import GphotoBot
-from gphotobot.conf import settings
+from gphotobot import GphotoBot, settings, utils
 from gphotobot.sql import (async_session_maker, get_active_timelapses,
                            State, Timelapse)
-from gphotobot.utils import utils
-from gphotobot.utils.base.task_loop import TaskLoop
-from gphotobot.utils.base.cog_metaclass import CogABCMeta
 from .event_queue import ExecutorEventQueue
 from .executor import TimelapseExecutor
 from .executor_event import ExecutorEvent
@@ -20,7 +16,9 @@ from .executor_event import ExecutorEvent
 _log = logging.getLogger(__name__)
 
 
-class Coordinator(TaskLoop, commands.Cog, metaclass=CogABCMeta):
+class Coordinator(utils.TaskLoop,
+                  commands.Cog,
+                  metaclass=utils.CogABCMeta):
     """
     This class coordinates the execution of all the active timelapses. It spawns
     executor task loops for each timelapse.

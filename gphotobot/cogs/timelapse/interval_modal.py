@@ -7,8 +7,7 @@ from typing import Awaitable, Callable, Optional
 import discord
 from discord import ui, utils as discord_utils
 
-from gphotobot.utils import utils
-from gphotobot.utils.validation_error import ValidationError
+from gphotobot import utils
 
 _log = logging.getLogger(__name__)
 
@@ -80,7 +79,7 @@ class ChangeIntervalModal(ui.Modal, title='Timelapse Interval'):
             # Raise an error if it can't be parsed
             if interval is None:
                 clean = discord_utils.escape_markdown(self.interval.value)
-                raise ValidationError(
+                raise utils.ValidationError(
                     f"Couldn't parse the interval **\"{clean}\"**. The "
                     f"capture interval must be in a supported format, like "
                     f"'5h 2m 12.8s', '8:03', or '1d 10:30s'."
@@ -90,12 +89,12 @@ class ChangeIntervalModal(ui.Modal, title='Timelapse Interval'):
             if interval == timedelta():
                 interval = None
                 if self.required:
-                    raise ValidationError(
+                    raise utils.ValidationError(
                         msg="Setting the capture interval to 0 disables it, "
                             "and you can't do that: the interval is required "
                             "here."
                     )
-        except ValidationError as e:
+        except utils.ValidationError as e:
             embed = utils.contrived_error_embed(
                 title='Error: Invalid Interval',
                 text=e.msg

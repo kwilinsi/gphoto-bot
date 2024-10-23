@@ -8,13 +8,10 @@ from discord import app_commands, ui, InteractionMessage
 from discord.ext import commands
 from gphoto2 import GPhoto2Error
 
-from gphotobot.bot import GphotoBot
-from gphotobot.conf import settings
-from gphotobot.libgphoto import GCamera, gmanager, gutils, NoCameraFound
-from gphotobot.libgphoto.rotation import Rotation
+from gphotobot import const, GphotoBot, settings, utils
+from gphotobot.libgphoto import (GCamera, gmanager, gutils,
+                                 NoCameraFound, Rotation)
 from gphotobot.sql import async_session_maker
-from gphotobot.utils import const, utils
-from gphotobot.utils.base.view import BaseView
 from .helper.camera_selector import CameraSelector, generate_camera_dict
 
 _log = logging.getLogger(__name__)
@@ -101,13 +98,12 @@ class Camera(commands.GroupCog,
             try:
                 # Send a camera selector
                 await CameraSelector(
-                    interaction=interaction,
+                    parent=interaction,
                     callback=partial(CameraEditor.create_editor,
                                      interaction=interaction),
                     on_cancel=interaction.delete_original_response,
                     cameras=await generate_camera_dict(),
-                    message="Choose a camera from the list below to edit it:",
-                    edit_response=False
+                    message="Choose a camera from the list below to edit it:"
                 ).refresh_display()
             except NoCameraFound:
                 await gutils.handle_no_camera_error(interaction)
@@ -146,18 +142,17 @@ class Camera(commands.GroupCog,
 
         # Send a camera selector
         await CameraSelector(
-            interaction=interaction,
+            parent=interaction,
             callback=partial(
                 CameraEditor.create_editor, interaction=interaction
             ),
             on_cancel=interaction.delete_original_response,
             cameras=await generate_camera_dict(matching_cameras),
-            message=embed,
-            edit_response=False
+            message=embed
         ).refresh_display()
 
 
-class CameraEditor(BaseView):
+class CameraEditor(utils.BaseView):
     def __init__(self, camera: GCamera, interaction: discord.Interaction):
         """
         Initialize a camera editor view on a given camera.
@@ -201,7 +196,7 @@ class CameraEditor(BaseView):
         # Create a view, and refresh the display to send it
         await cls(camera, interaction).refresh_display(rebuild=True)
 
-    async def build_embed(self, rebuild: bool = False) -> discord.Embed:
+    async def build_embed(self, *, rebuild: bool = False) -> discord.Embed:
         """
         Build the embed that constitutes the main message. This view is attached
         to that message.

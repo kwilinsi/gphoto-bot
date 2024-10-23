@@ -3,13 +3,10 @@ from datetime import date, time, timedelta
 import logging
 from typing import Optional, Union
 
-from discord import ButtonStyle, Embed, Interaction, ui
+from discord import ButtonStyle, Embed, Interaction, Message, ui
 
-from gphotobot.conf import settings
-from gphotobot.utils.base.view import BaseView
-from gphotobot.utils import utils
-from gphotobot.utils.days_of_week import EVERY_DAY_OF_WEEK, DayOfWeek as DayEnum
-from gphotobot.utils.validation_error import ValidationError
+from gphotobot import GphotoBot, settings, utils
+from gphotobot.utils import DayOfWeek as DayEnum
 from ..interval_modal import ChangeIntervalModal
 from .dates import Dates
 from .days import Days
@@ -20,24 +17,24 @@ from .schedule_modals import ScheduleRuntimeModal, SpecificDatesModal
 _log = logging.getLogger(__name__)
 
 
-class ScheduleEntryBuilder(BaseView):
+class ScheduleEntryBuilder(utils.BaseView):
     def __init__(self,
-                 interaction: Interaction,
+                 parent: Interaction[GphotoBot] | utils.BaseView | Message,
                  callback: Callable[[Optional[ScheduleEntry]], Awaitable[None]],
                  entry: Optional[ScheduleEntry] = None) -> None:
         """
         Initialize a view for creating/editing a schedule entry.
 
         Args:
-            interaction: The original interaction to edit. (Not the interaction
-            requesting this builder).
+            parent: The interaction, view, or message to use when refreshing
+            the display.
             callback: The function to call when done editing.
             entry: An existing schedule entry to edit, or None to create a new
             one. Defaults to None.
         """
 
         super().__init__(
-            interaction=interaction,
+            parent=parent,
             callback=callback,
             permission_error_msg='Create a new timelapse with `/timelapse '
                                  'create` to build a custom schedule.'
@@ -107,7 +104,7 @@ class ScheduleEntryBuilder(BaseView):
 
         _log.debug(f'Created schedule entry builder on entry {entry}')
 
-    async def build_embed(self) -> Embed:
+    async def build_embed(self, *args, **kwargs) -> Embed:
         if self.entry is None:
             description = ("Schedule when the timelapse should run.\n\nCreate "
                            "a rule to determine which days this entry should "
@@ -286,7 +283,7 @@ class ScheduleEntryBuilder(BaseView):
 
             if self.entry is None:
                 self.entry = ScheduleEntry(days=DaysOfWeek(
-                    EVERY_DAY_OF_WEEK if every_day else ()
+                    utils.EVERY_DAY_OF_WEEK if every_day else ()
                 ))
             elif isinstance(self.entry.days, DaysOfWeek):
                 change_components = False
@@ -294,7 +291,7 @@ class ScheduleEntryBuilder(BaseView):
                 if every_day:
                     # It's already using the DaysOfWeek dropdown. The user
                     # switched to 'Every Day', so add all the days of the week
-                    self.entry.days.update(EVERY_DAY_OF_WEEK)  # noqa
+                    self.entry.days.update(utils.EVERY_DAY_OF_WEEK)  # noqa
                     utils.set_menu_default(
                         self.components[0],
                         tuple(d.name.capitalize()
@@ -307,7 +304,7 @@ class ScheduleEntryBuilder(BaseView):
             else:
                 # Replace with new Rules instance that uses every day or
                 self.entry.days = DaysOfWeek(
-                    EVERY_DAY_OF_WEEK if every_day else ()
+                    utils.EVERY_DAY_OF_WEEK if every_day else ()
                 )
 
         ##################################################
@@ -444,7 +441,7 @@ class ScheduleEntryBuilder(BaseView):
 
         try:
             await self.callback(self.entry)
-        except ValidationError as e:
+        except utils.ValidationError as e:
             embed = utils.contrived_error_embed(
                 title='Failed to Add Entry',
                 text=e.msg

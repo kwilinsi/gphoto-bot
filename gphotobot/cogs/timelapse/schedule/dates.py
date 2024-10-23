@@ -6,8 +6,7 @@ from typing import Optional
 
 from sortedcontainers import SortedSet
 
-from gphotobot.utils.validation_error import ValidationError
-from gphotobot.utils.dates import DateString, ONE_DAY
+from gphotobot import utils
 from .days import Days
 
 
@@ -122,7 +121,7 @@ class Dates(SortedSet[date], Days):
         if len(self) == 0:
             return self.UNDEFINED
 
-        s = DateString(self).to_string(max_len=17, none_on_fail=True)
+        s = utils.DateString(self).to_string(max_len=17, none_on_fail=True)
         return f"{len(self)} specific dates" if s is None else s
 
     def str_header(self) -> tuple[str, bool]:
@@ -134,7 +133,7 @@ class Dates(SortedSet[date], Days):
         # Generate the string with the dates. 35 characters should always be
         # enough to at least list one date or date range, so no need to handle
         # a case where it returns None as in str_shortest()
-        string, abbreviated = DateString(self).to_string(
+        string, abbreviated = utils.DateString(self).to_string(
             max_len=35, indicate_if_abbreviated=True
         )
         return string, not abbreviated
@@ -145,7 +144,7 @@ class Dates(SortedSet[date], Days):
         if n == 0:
             return self.UNDEFINED
 
-        return DateString(self).to_string(
+        return utils.DateString(self).to_string(
             max_len=max_len,
             force_year_at=1
         )
@@ -165,7 +164,7 @@ class Dates(SortedSet[date], Days):
 
         if d in self:
             # If the rule is currently active, look for next inactive day
-            while (d := d + ONE_DAY) in self:
+            while (d := d + utils.ONE_DAY) in self:
                 pass
             return d
         else:
@@ -197,7 +196,7 @@ class Dates(SortedSet[date], Days):
         """
 
         if n > self.MAX_ALLOWED_DATES:
-            raise ValidationError(
+            raise utils.ValidationError(
                 attr='Error: Too Many Dates',
                 msg=f"You can't have more than "
                     f"**{Dates.MAX_ALLOWED_DATES}** specific dates in a "
