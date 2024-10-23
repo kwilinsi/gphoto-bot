@@ -212,11 +212,19 @@ EMOJI_INFO = dc.DefaultConfigEntry(
     default='ℹ'
 )
 
-# The emoji for use in a Cancel/Close button. Note that this usually appears on
-# top of a red button, which makes it difficult, as Discord doesn't have a white
-# X emoji. Use None to disable the emoji (as is default).
+# The emoji for use in a Cancel button. Note that this usually appears on top of
+# a red button, which makes it difficult, as Discord doesn't have a white X
+# emoji. Use None to disable the emoji (as is default).
 # Recommended custom emoji: https://fonts.google.com/icons?selected=Material+Symbols+Outlined:cancel:FILL@0;wght@300;GRAD@200;opsz@24&icon.query=canc&icon.size=24&icon.color=%23edeff2
 EMOJI_CANCEL = dc.DefaultConfigEntry(
+    section='emoji',
+    cast_func=dc.to_nullable_string,
+    default=None
+)
+
+# The emoji for use in a Close button
+# Recommended custom emoji: https://fonts.google.com/icons?selected=Material+Symbols+Outlined:close:FILL@0;wght@300;GRAD@200;opsz@24&icon.query=cancel&icon.size=24&icon.color=%23edeff2
+EMOJI_CLOSE = dc.DefaultConfigEntry(
     section='emoji',
     cast_func=dc.to_nullable_string,
     default=None
@@ -249,6 +257,14 @@ EMOJI_TIME_INTERVAL = dc.DefaultConfigEntry(
 # The emoji for picking a camera
 # Recommended custom emoji: https://fonts.google.com/icons?selected=Material+Symbols+Outlined:photo_camera:FILL@0;wght@300;GRAD@200;opsz@24&icon.query=camera&icon.size=24&icon.color=%23edeff2
 EMOJI_CAMERA = dc.DefaultConfigEntry(
+    section='emoji',
+    cast_func=dc.to_nullable_string,
+    default=None
+)
+
+# The emoji for a preview image
+# Recommended custom emoji: https://fonts.google.com/icons?selected=Material+Symbols+Outlined:preview:FILL@0;wght@300;GRAD@200;opsz@24&icon.query=preview&icon.size=24&icon.color=%23edeff2
+EMOJI_PREVIEW_IMAGE = dc.DefaultConfigEntry(
     section='emoji',
     cast_func=dc.to_nullable_string,
     default=None
@@ -348,6 +364,54 @@ EMOJI_MOVE_DOWN = dc.DefaultConfigEntry(
     section='emoji',
     cast_func=dc.to_nullable_string,
     default='⬇'
+)
+
+# The emoji for starting a timelapse that's run manually
+# Recommended custom emoji: https://fonts.google.com/icons?selected=Material+Symbols+Outlined:not_started:FILL@0;wght@300;GRAD@200;opsz@24&icon.query=start&icon.size=24&icon.color=%23edeff2
+EMOJI_START = dc.DefaultConfigEntry(
+    section='emoji',
+    cast_func=dc.to_nullable_string,
+    default='▶'
+)
+
+# The emoji for stopping a timelapse that is triggered manually
+# Recommended custom emoji: https://fonts.google.com/icons?selected=Material+Symbols+Outlined:stop_circle:FILL@0;wght@300;GRAD@200;opsz@24&icon.query=pause&icon.size=24&icon.color=%23edeff2
+EMOJI_STOP = dc.DefaultConfigEntry(
+    section='emoji',
+    cast_func=dc.to_nullable_string,
+    default='⏹'
+)
+
+# The emoji for continuing a finished timelapse past when it stopped
+# Recommended custom emoji: https://fonts.google.com/icons?selected=Material+Symbols+Outlined:not_started:FILL@0;wght@300;GRAD@200;opsz@24&icon.query=start&icon.size=24&icon.color=%23edeff2
+EMOJI_CONTINUE = dc.DefaultConfigEntry(
+    section='emoji',
+    cast_func=dc.to_nullable_string,
+    default='▶'
+)
+
+# The emoji for pausing a running timelapse
+# Recommended custom emoji: https://fonts.google.com/icons?selected=Material+Symbols+Outlined:pause_circle:FILL@0;wght@300;GRAD@200;opsz@24&icon.query=pause&icon.size=24&icon.color=%23edeff2
+EMOJI_PAUSE = dc.DefaultConfigEntry(
+    section='emoji',
+    cast_func=dc.to_nullable_string,
+    default='⏸'
+)
+
+# The emoji for resuming a paused timelapse
+# Recommended custom emoji: https://fonts.google.com/icons?selected=Material+Symbols+Outlined:resume:FILL@0;wght@300;GRAD@200;opsz@24&icon.query=resume&icon.size=24&icon.color=%23edeff2
+EMOJI_RESUME = dc.DefaultConfigEntry(
+    section='emoji',
+    cast_func=dc.to_nullable_string,
+    default='▶'
+)
+
+# The emoji for accessing the gallery for a particular timelapse
+# Recommended custom emoji: https://fonts.google.com/icons?selected=Material+Symbols+Outlined:imagesmode:FILL@0;wght@300;GRAD@200;opsz@24&icon.query=images&icon.size=24&icon.color=%23edeff2
+EMOJI_GALLERY = dc.DefaultConfigEntry(
+    section='emoji',
+    cast_func=dc.to_nullable_string,
+    default=None
 )
 
 ################################################################################

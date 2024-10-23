@@ -39,13 +39,19 @@ class TimelapseExecutor(TaskLoop):
 
         self.stop_callback: Callable[[TimelapseExecutor],
         Awaitable[None]] = stop_callback
-        self.frame_count: int = 0
 
         # Tracks whether cancel() was called on this executor
         self.cancelling: bool = False
 
         self.timelapse: Timelapse = timelapse
         self.schedule: Schedule = Schedule.from_db(timelapse.schedule_entries)
+
+        # These listeners are executed whenever the timelapse state changes
+        self._state_listener_lock: asyncio.Lock = asyncio.Lock()
+        self.state_listeners: list[Callable[[State], Awaitable[None]]] = []
+
+        # References to asyncio tasks created when/if this is cancelled
+        self._t1 = self._t2 = None
 
         _log.info(f"Created new timelapse executor: {self}")
 
@@ -56,6 +62,10 @@ class TimelapseExecutor(TaskLoop):
     @property
     def name(self) -> str:
         return self.timelapse.name
+
+    @property
+    def frame_count(self) -> int:
+        return self.timelapse.frames
 
     def __str__(self) -> str:
         """
@@ -80,7 +90,8 @@ class TimelapseExecutor(TaskLoop):
         if self.timelapse.state != State.WAITING:
             _log.info(f"Cancelling executor running timelapse '{self.name}'")
             self.cancelling = True
-            asyncio.create_task(self.stop_callback(self))
+            self._t1 = asyncio.create_task(self.stop_callback(self))
+            self._t2 = asyncio.create_task(self.update_db())
 
     def stop(self) -> None:
         super().stop()
@@ -89,10 +100,11 @@ class TimelapseExecutor(TaskLoop):
         # just WAITING, stick around for the next event
         if self.timelapse.state != State.WAITING:
             _log.info(f"Stopping executor running timelapse '{self.name}'")
-            asyncio.create_task(self.stop_callback(self))
+            self._t1 = asyncio.create_task(self.stop_callback(self))
+            self._t2 = asyncio.create_task(self.update_db())
 
     async def run(self):
-        self.frame_count += 1
+        self.timelapse.frames += 1
         print(f'{self.name}: '
               f'l={self.current_loop}, f={self.frame_count} | '
               f'{utils.format_time()}')
@@ -347,6 +359,7 @@ class TimelapseExecutor(TaskLoop):
             _log.info(f"Timelapse '{self.name}' ({self.id}) "
                       f" is now {event.state.name}")
             await self.update_db()
+            await self._run_state_listeners(event.state)
 
         if event.state in (State.READY, State.PAUSED, State.FINISHED):
             # The timelapse stopped; no need to update any settings. Cancel
@@ -379,4 +392,49 @@ class TimelapseExecutor(TaskLoop):
         async with (async_session_maker(expire_on_commit=False) as session,
                     session.begin()):  # Read/write session with begin()
             session.add(self.timelapse)
-            await session.commit()
+            await session.commit()  # TODO remove this???
+
+    async def register_listener(
+            self, listener: Callable[[State], Awaitable[None]]) -> None:
+        """
+        Register a listener function that will run whenever the executor changes
+        the timelapse state.
+
+        Args:
+            listener: The async listener function to register.
+        """
+
+        async with self._state_listener_lock:
+            self.state_listeners.append(listener)
+            _log.debug('Registered state change listener '
+                       f'#{len(self.state_listeners)} on {self}')
+
+    async def _run_state_listeners(self, state: State) -> None:
+        """
+        The executor/timelapse state changed. Call this to notify all the
+        registered listeners.
+
+        Args:
+            state: The new state.
+        """
+
+        async with self._state_listener_lock:
+            for listener in self.state_listeners:
+                await listener(state)
+
+    async def remove_listener(
+            self, listener: Callable[[State], Awaitable[None]]) -> None:
+        """
+        Remove the specified listener function from the list of registered
+        listeners that run when the executor state changes.
+
+        Args:
+            listener: The async listener to remove.
+        """
+
+        async with self._state_listener_lock:
+            for i in range(len(self.state_listeners) - 1, -1, -1):
+                if self.state_listeners[i] == listener:
+                    del self.state_listeners[i]
+                    _log.debug(f'Removed state change listener #{i + 1} '
+                               f'from {self}')

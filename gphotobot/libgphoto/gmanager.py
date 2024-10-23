@@ -5,6 +5,7 @@ import logging
 import gphoto2 as gp
 
 from gphotobot import sql
+from gphotobot.sql import Camera as DBCamera
 from . import GCamera, NoCameraFound
 
 _log = logging.getLogger(__name__)
@@ -12,24 +13,6 @@ _log = logging.getLogger(__name__)
 # This is a list of all accessible cameras indexed by their system name.
 # It's updated by all_cameras()
 _CAMERAS: list[GCamera] = []
-
-
-def _is_cached(camera: tuple[str, str]) -> bool:
-    """
-    Determine whether the given camera is in the cache.
-
-    Args:
-        camera: The camera to check.
-
-    Returns:
-        bool: Whether the camera is in the cache.
-    """
-
-    for cam in _CAMERAS:
-        if cam.name == camera[0] and cam.name == camera[1]:
-            return True
-
-    return False
 
 
 async def _auto_detect_cameras() -> tuple[
@@ -312,7 +295,7 @@ async def all_cameras(force_reload: bool = False) -> list[GCamera]:
     return _CAMERAS.copy()
 
 
-async def get_camera(name: str) -> list[GCamera]:
+async def get_camera_by_name(name: str) -> list[GCamera]:
     """
     Get a camera by its name.
 
@@ -324,6 +307,29 @@ async def get_camera(name: str) -> list[GCamera]:
     """
 
     return [c for c in await all_cameras() if c.name == name]
+
+
+async def get_camera(camera: DBCamera) -> GCamera:
+    """
+    Given a camera record from the database, return the matching GCamera gPhoto
+    wrapper.
+
+    Args:
+        camera: The database camera record.
+
+    Returns:
+        The matching camera.
+
+    Raises:
+        NoCameraFound: If there aren't any cameras matching the given DB record.
+    """
+
+    cameras: list[GCamera] = await all_cameras()
+    for cam in cameras:
+        if camera.id == await cam.get_db_id():
+            return cam
+
+    raise NoCameraFound()
 
 
 async def get_default_camera() -> GCamera:

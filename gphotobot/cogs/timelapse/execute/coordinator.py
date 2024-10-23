@@ -2,6 +2,7 @@ import asyncio
 from datetime import datetime
 from functools import partial
 import logging
+from typing import Optional
 
 from discord.ext import commands
 
@@ -62,13 +63,10 @@ class Coordinator(TaskLoop, commands.Cog, metaclass=CogABCMeta):
         updated = added = removed = 0
         for db_t in timelapses:
             if db_t.id in self.executors:
-                # Found a match: check for updates
-                if not self.executors[db_t.id].equals_db_record(db_t):
-                    # Update by deleting the executor and recreating it
-                    await self.remove_executor(self.executors[db_t.id])
-                    did_add = await self.add_timelapse(db_t)
-                    removed += not did_add
-                    updated += did_add
+                # Found a match: try to apply updates
+                r = await self.update_executor(self.executors[db_t.id], db_t)
+                removed += r == False
+                updated += r == True
             else:
                 # No matches: add a new executor
                 added += await self.add_timelapse(db_t)
@@ -95,6 +93,35 @@ class Coordinator(TaskLoop, commands.Cog, metaclass=CogABCMeta):
         # Log and return the message
         _log.info(message)
         return message
+
+    async def update_executor(self,
+                              executor: TimelapseExecutor,
+                              timelapse: Timelapse) -> bool | None:
+        """
+        Update some timelapse executor with a new timelapse record from the
+        database. If the database record doesn't match the executor, then the
+        executor is removed and replace with a new one.
+
+        This can return True, False, or None based on the outcome:
+        True: The executor was updated: old one removed and a new one added.
+        False: The executor was removed, but a new one wasn't added.
+        None: The executor already matched the db record; nothing happened.
+
+        Args:
+            executor: The executor to update.
+            timelapse: The incoming timelapse record (either from the database
+            or a timelapse control panel).
+
+        Returns:
+            True, False, or None depending on the outcome.
+        """
+
+        if not executor.equals_db_record(timelapse):
+            # Update by deleting the executor and recreating it
+            await self.remove_executor(executor)
+            return await self.add_timelapse(timelapse)
+
+        return None
 
     async def add_timelapse(self, tl: Timelapse) -> bool:
         """
@@ -136,6 +163,20 @@ class Coordinator(TaskLoop, commands.Cog, metaclass=CogABCMeta):
             await self.queue.push(event)
 
         return True
+
+    def get_timelapse(self, timelapse_id: int) -> Optional[TimelapseExecutor]:
+        """
+        Get the timelapse executor for the timelapse with the specified id.
+
+        Args:
+            timelapse_id: The id of the desired timelapse.
+
+        Returns:
+            The associated timelapse executor, or None if no executor matches
+            that id.
+        """
+
+        return self.executors.get(timelapse_id, None)
 
     async def process_executor_event(self, event: ExecutorEvent) -> None:
         """

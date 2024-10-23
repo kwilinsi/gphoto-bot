@@ -1,5 +1,3 @@
-import asyncio
-from datetime import datetime
 import logging
 from typing import Optional
 
@@ -12,7 +10,6 @@ from gphotobot.bot import GphotoBot
 from gphotobot.conf import APP_NAME, settings
 from gphotobot.utils import utils
 from gphotobot.libgphoto import gmanager, gutils, NoCameraFound
-from gphotobot.libgphoto.rotation import Rotation
 
 _log = logging.getLogger(__name__)
 
@@ -46,42 +43,20 @@ class Photo(commands.GroupCog,
         # Defer a response
         await interaction.response.defer(thinking=True)
 
-        # Take a photo
         try:
-            gcamera = await gmanager.get_default_camera()
-            path, rotation = await gcamera.preview_photo()
+            # Get the default camera
+            camera = await gmanager.get_default_camera()
+
+            # Capture and send the image
+            async with gutils.preview_image_embed(camera) as (embed, file):
+                await interaction.followup.send(file=file, embed=embed)
         except NoCameraFound:
+            # No camera error occurs while trying to get the default camera
             await gutils.handle_no_camera_error(interaction)
-            return
-        except GPhoto2Error as e:
-            await gutils.handle_gphoto_error(interaction, e,
-                                             'Failed to capture preview')
-            return
-
-        # Create the result embed
-        embed = discord.Embed(
-            title='Camera Preview',
-            description=f'Preview image from **{gcamera}**',
-            color=settings.DEFAULT_EMBED_COLOR,
-            timestamp=datetime.now()
-        )
-
-        # Add the preview image to the embed
-        file = discord.File(path, filename=f'preview.{path.suffix}')
-        embed.set_image(url=f'attachment://{file.filename}')
-        if rotation != Rotation.DEGREE_0:
-            embed.set_footer(text=f'(Preview rotated {str(rotation).lower()})')
-
-        # Send the embed
-        await interaction.followup.send(file=file, embed=embed)
-
-        # Delete the preview
-        try:
-            await asyncio.to_thread(path.unlink)
-            _log.debug(f'Deleted preview photo: {path}')
-        except OSError as e:
-            _log.warning(f"Attempted to delete preview photo, but it didn't "
-                         f"exist for some reason: path='{path}', {e}")
+        except GPhoto2Error as error:
+            await gutils.handle_gphoto_error(
+                interaction, error, 'Failed to capture preview'
+            )
 
 
 async def setup(bot: GphotoBot):

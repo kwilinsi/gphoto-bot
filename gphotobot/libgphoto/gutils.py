@@ -1,12 +1,17 @@
 import asyncio
+import contextlib
+from datetime import datetime
 import logging
 from pathlib import Path
+from typing import Optional
 
 import discord
+from discord import Embed, File
 from discord.ext import commands
-from PIL import Image
 import gphoto2 as gp
+from PIL import Image
 
+from gphotobot.conf import settings
 from gphotobot.libgphoto.rotation import Rotation
 from gphotobot.utils import const, utils
 
@@ -54,20 +59,24 @@ async def handle_gphoto_error(interaction: discord.Interaction[commands.Bot],
 
 
 async def handle_no_camera_error(
-        interaction: discord.Interaction[commands.Bot]) -> None:
+        interaction: discord.Interaction[commands.Bot],
+        message: Optional[str] = None) -> None:
     """
     Send an error embed in response to an interaction indicating that no camera
     was found.
 
     Args:
-        interaction (discord.Interaction[commands.Bot]): The interaction to
-        which to send the error message.
+        interaction: The interaction to which to send the error message.
+        message: A custom error message to use instead of the default generic
+        message. Defaults to None.
     """
 
-    _log.warning(f'Failed to get a camera when processing '
-                 f'{utils.app_command_name(interaction)}')
-    embed = utils.contrived_error_embed('No camera detected',
-                                        'Missing Camera')
+    if message is None:
+        message = 'No camera detected'
+
+    _log.warning(f'Error processing {utils.app_command_name(interaction)}: '
+                 f'{message.lower()}')
+    embed = utils.contrived_error_embed(message, 'Missing Camera')
     await utils.update_interaction(interaction, embed)
 
 
@@ -98,3 +107,59 @@ def _rotate_image_blocking(path: Path, rotation: Rotation) -> None:
         image = Image.open(path)
         rotated_image = image.rotate(360 - rotation.value, expand=True)
         rotated_image.save(path)
+
+
+@contextlib.asynccontextmanager
+async def preview_image_embed(camera) -> tuple[Embed, File]:
+    """
+    Take a preview photo with the given camera, and return an embed and the
+    file to attach. This implementation uses a context manager to manage
+    resources.
+
+    The preview image is captured and saved to tmp storage, then used to
+    construct an embed. After the embed and file are consumed and sent to
+    Discord, exit the context manager, at which point the image is
+    automatically deleted from tmp storage.
+
+    Access this via:
+    async with preview_image_embed(camera) as (embed, file):
+        # send to discord
+
+    Args:
+        camera: The camera to use for the preview image.
+
+    Returns:
+        A tuple with the embed and the file.
+
+    Raises:
+        GPhoto2Error: if there's an error capturing the preview image.
+    """
+
+    # Take a photo
+    path, rotation = await camera.preview_photo()
+
+    # Create the result embed
+    embed = discord.Embed(
+        title='Camera Preview',
+        description=f'Preview image from **{camera}**',
+        color=settings.DEFAULT_EMBED_COLOR,
+        timestamp=datetime.now()
+    )
+
+    # Add the preview image to the embed
+    file = discord.File(path, filename=f'preview.{path.suffix}')
+    embed.set_image(url=f'attachment://{file.filename}')
+    if rotation != Rotation.DEGREE_0:
+        embed.set_footer(text=f'(Preview rotated {str(rotation).lower()})')
+
+    # Yield the embed
+    try:
+        yield embed, file
+    finally:
+        # Delete the preview image
+        try:
+            await asyncio.to_thread(path.unlink)
+            _log.debug(f'Deleted preview photo: {path}')
+        except OSError as e:
+            _log.warning(f"Attempted to delete preview photo, but it didn't "
+                         f"exist for some reason: path='{path}', {e}")

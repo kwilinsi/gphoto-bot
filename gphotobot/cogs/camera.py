@@ -115,7 +115,8 @@ class Camera(commands.GroupCog,
             return
 
         # Search for the user's desired camera
-        matching_cameras: list[GCamera] = await gmanager.get_camera(camera)
+        matching_cameras: list[GCamera] = \
+            await gmanager.get_camera_by_name(camera)
         n = len(matching_cameras)
         camera = utils.trunc(camera, 100)  # truncate excessive user input
 

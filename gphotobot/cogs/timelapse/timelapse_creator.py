@@ -5,8 +5,7 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from discord import (ButtonStyle, Embed, Interaction, Member,
-                     ui, User, utils as discord_utils)
+from discord import ButtonStyle, Embed, Interaction, ui, utils as discord_utils
 from sqlalchemy.exc import SQLAlchemyError
 
 from gphotobot.conf import settings

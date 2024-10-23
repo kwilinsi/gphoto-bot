@@ -116,19 +116,27 @@ class BaseView(ui.View, ABC):
             True if and only if the interaction is accepted.
         """
 
-        # If restricted to owner, make sure this user is the owner
-        if self.restrict_to_owner and \
-                interaction.user.id != self.interaction.user.id:
-            # Send a permission error
-            embed = utils.contrived_error_embed(
-                text="Sorry, you don't have permission to do that. " +
-                     self.permission_error_msg
-            )
-            await interaction.response.send_message(embed=embed, ephemeral=True)
-            return False
+        # If the interacting user is the owner, or we aren't restricting to the
+        # owner, allow the interaction to go through
+        if not self.restrict_to_owner or \
+                interaction.user.id == self.interaction.user.id:
+            return True
 
-        # Accept the interaction
-        return True
+        # Send a permission error
+        embed = utils.contrived_error_embed(
+            title='Permission Denied',
+            text="Sorry, you don't have permission to do that. " +
+                 self.permission_error_msg
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        # Log a debug message
+        _log.debug(f'Blocked user {interaction.user.display_name} '
+                   f'(id {interaction.user.id}) from using a component '
+                   f'on a {self.__class__.__name__}')
+
+        # Block this interaction from going through
+        return False
 
     def create_button(self,
                       label: str,
@@ -137,6 +145,8 @@ class BaseView(ui.View, ABC):
                       emoji: Optional[str] = None,
                       disabled: bool = False,
                       row: Optional[int] = None,
+                      interaction_check: Optional[Callable[[Interaction],
+                      Awaitable[bool]]] = None,
                       add: bool = True,
                       auto_defer: bool = True) -> ui.Button:
         """
@@ -152,6 +162,9 @@ class BaseView(ui.View, ABC):
             Defaults to False.
             row: The row in the view, i.e. where to put the button vertically.
             None to place automatically. Defaults to None.
+            interaction_check: An async callback to run when this button is
+            clicked. It returns a boolean. If that boolean is False,
+            the button's callback is not run. Defaults to None.
             add: Whether to add the button to this view. Defaults to True.
             auto_defer: Whether to immediately defer any interactions with the
             button before running the callback function. Defaults to False.
@@ -173,6 +186,10 @@ class BaseView(ui.View, ABC):
         button.callback = (callback if not auto_defer else
                            utils.deferred(callback))
 
+        # Override the interaction check if given a callback
+        if interaction_check is not None:
+            button.interaction_check = interaction_check
+
         # Add the button to this view, if specified
         if add:
             self.add_item(button)
@@ -190,6 +207,8 @@ class BaseView(ui.View, ABC):
                            no_maximum: bool = False,
                            row: Optional[int] = None,
                            defaults: Optional[list[str]] = None,
+                           interaction_check: Optional[Callable[[Interaction],
+                           Awaitable[bool]]] = None,
                            add: bool = True,
                            auto_defer: bool = True) -> ui.Select:
         """
@@ -215,8 +234,11 @@ class BaseView(ui.View, ABC):
             automatically. Note that select menus take up an entire row.
             Defaults to None.
             defaults: An optional list of options to make selected by default.
-            This is typically used if the list of options are strings. These
-            default values are the labels.
+            This is typically used if the list of options are strings (which
+            are option labels). Defaults to None.
+            interaction_check: An async callback to run when this menu is used.
+            It returns a boolean. If that boolean is False, the section menu's
+            callback is not run. Defaults to None.
             add: Whether to add the menu to this view. Defaults to True.
             auto_defer: Whether to immediately defer any interactions with the
             button before running the callback function. Defaults to False.
@@ -262,6 +284,10 @@ class BaseView(ui.View, ABC):
             menu.callback = utils.deferred(callback)
         else:
             menu.callback = callback
+
+        # Override the interaction check if given a callback
+        if interaction_check is not None:
+            menu.interaction_check = interaction_check
 
         # Add it to this view, if enabled
         if add:

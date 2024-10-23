@@ -56,7 +56,8 @@ class Timelapse(Base):
     # Foreign key: many-to-one
     camera_id: Mapped[int] = mapped_column(ForeignKey(Camera.id))
     camera: Mapped[Camera] = relationship(
-        back_populates='timelapses'
+        back_populates='timelapses',
+        lazy='joined'
     )
 
     # Attributes
