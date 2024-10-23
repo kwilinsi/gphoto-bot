@@ -69,7 +69,7 @@ class Coordinator(TaskLoop, commands.Cog, metaclass=CogABCMeta):
                 updated += r == True
             else:
                 # No matches: add a new executor
-                added += await self.add_timelapse(db_t)
+                added += await self.create_executor(db_t)
 
         # Look for any executors running timelapses that are no longer in the
         # database, and remove them
@@ -119,11 +119,11 @@ class Coordinator(TaskLoop, commands.Cog, metaclass=CogABCMeta):
         if not executor.equals_db_record(timelapse):
             # Update by deleting the executor and recreating it
             await self.remove_executor(executor)
-            return await self.add_timelapse(timelapse)
+            return await self.create_executor(timelapse)
 
         return None
 
-    async def add_timelapse(self, tl: Timelapse) -> bool:
+    async def create_executor(self, tl: Timelapse) -> bool:
         """
         Create a timelapse executor for a new timelapse. Send the initial event
         to the event queue.
@@ -132,7 +132,8 @@ class Coordinator(TaskLoop, commands.Cog, metaclass=CogABCMeta):
             tl: The timelapse to register with an executor.
 
         Returns:
-            A boolean indicating whether the timelapse was actually added.
+            A boolean indicating whether an executor for the timelapse was
+            added.
         """
 
         # Create an executor, and get an event to set its current state
@@ -144,8 +145,12 @@ class Coordinator(TaskLoop, commands.Cog, metaclass=CogABCMeta):
 
         # If the event state is PAUSED, READY, or FINISHED, don't even bother
         # adding this executor. It needs user input to do anything, and it'll
-        # just be removed again as soon as the event is processed
-        if event.state in (State.READY, State.PAUSED, State.FINISHED):
+        # just be removed again as soon as the event is processed. The only
+        # exception is if it's PAUSED and has an upcoming end time: in that
+        # case, add the executor, as it'll switch to FINISHED soon.
+        if event.state == State.READY or event.state == State.FINISHED or \
+                (event.state == State.PAUSED and
+                 (tl.end_time is None or tl.end_time <= datetime.now())):
             # But if the state is currently something else, fix it in the db
             if executor.timelapse.state != event.state:
                 _log.info('Correcting malformed db entry state from '
@@ -164,7 +169,7 @@ class Coordinator(TaskLoop, commands.Cog, metaclass=CogABCMeta):
 
         return True
 
-    def get_timelapse(self, timelapse_id: int) -> Optional[TimelapseExecutor]:
+    def get_executor(self, timelapse_id: int) -> Optional[TimelapseExecutor]:
         """
         Get the timelapse executor for the timelapse with the specified id.
 

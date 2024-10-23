@@ -88,10 +88,9 @@ class TimelapseExecutor(TaskLoop):
         # Only run the stop callback if it's being totally cancelled. If it's
         # just WAITING, stick around for the next event
         if self.timelapse.state != State.WAITING:
-            _log.info(f"Cancelling executor running timelapse '{self.name}'")
+            _log.info(f"Cancelling executor {self}")
             self.cancelling = True
             self._t1 = asyncio.create_task(self.stop_callback(self))
-            self._t2 = asyncio.create_task(self.update_db())
 
     def stop(self) -> None:
         super().stop()
@@ -99,7 +98,7 @@ class TimelapseExecutor(TaskLoop):
         # Only run the stop callback if it's being totally stopped. If it's
         # just WAITING, stick around for the next event
         if self.timelapse.state != State.WAITING:
-            _log.info(f"Stopping executor running timelapse '{self.name}'")
+            _log.info(f"Stopping executor {self}")
             self._t1 = asyncio.create_task(self.stop_callback(self))
             self._t2 = asyncio.create_task(self.update_db())
 
@@ -294,9 +293,20 @@ class TimelapseExecutor(TaskLoop):
             The next event, or None if there are no more automated events.
         """
 
-        # It should stop right now
-        if self.determine_current_event(now).state in \
-                (State.PAUSED, State.FINISHED, State.READY):
+        #################### PAUSED, FINISHED, or READY ####################
+
+        cur_state: State = self.determine_current_event(now).state
+
+        # If paused with an end time in the future, the next event is when it
+        # reaches that end time and finishes
+        if cur_state == State.PAUSED and \
+                self.timelapse.end_time is not None and \
+                self.timelapse.end_time > now:
+            return ExecutorEvent.with_state(self.timelapse.end_time,
+                                            self.timelapse, State.PAUSED)
+
+        # Next event is unknown; user input needed for anything to happen
+        if cur_state in (State.PAUSED, State.FINISHED, State.READY):
             return 'cancel'
 
         #################### FORCE RUNNING ####################
@@ -392,8 +402,8 @@ class TimelapseExecutor(TaskLoop):
 
         async with (async_session_maker(expire_on_commit=False) as session,
                     session.begin()):  # Read/write session with begin()
-            session.add(self.timelapse)
-            await session.commit()  # TODO remove this???
+            obj = await session.merge(self.timelapse)
+            session.add(obj)
 
     async def register_listener(
             self, listener: Callable[[State], Awaitable[None]]) -> None:

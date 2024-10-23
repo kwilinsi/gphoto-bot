@@ -1,4 +1,5 @@
 import asyncio
+from copy import copy
 from datetime import datetime
 import logging
 from typing import Optional
@@ -49,12 +50,13 @@ class TimelapseControlPanel(BaseView):
         from .execute import TIMELAPSE_COORDINATOR
         self.coordinator: Coordinator = TIMELAPSE_COORDINATOR
         self.executor: Optional[TimelapseExecutor] = \
-            TIMELAPSE_COORDINATOR.get_timelapse(timelapse.id)
+            TIMELAPSE_COORDINATOR.get_executor(timelapse.id)
 
         # Register a listener that runs when the executor changes state/interval
-        self._t = asyncio.create_task(
-            self.executor.register_listener(self.on_executor_state_change)
-        )
+        if self.executor is not None:
+            self._t = asyncio.create_task(
+                self.executor.register_listener(self.on_executor_state_change)
+            )
 
         # Get the timelapse owner and the schedule from the db record
         self.owner_id: int = timelapse.user_id
@@ -228,6 +230,21 @@ class TimelapseControlPanel(BaseView):
                   f"{self.frames} frame{'' if self.frames == 1 else 's'}"
         )
 
+        # Determine the current capture interval and the timelapse default
+        def_interval: float = self.timelapse.capture_interval
+        cur_interval = def_interval if self.executor is None else \
+            self.executor.seconds
+
+        # Get a string with the capture interval
+        if def_interval == cur_interval:
+            interval = 'One frame every ' + utils.format_duration(def_interval)
+        else:
+            interval = (f'Currently {utils.format_duration(cur_interval)} '
+                        f'(default is {utils.format_duration(def_interval)})')
+
+        # Add field with capture interval
+        embed.add_field(name='Interval', value=interval)
+
         # Add start time and end condition
         runtime_text = timelapse_utils.generate_embed_runtime_text(
             self.start_time,
@@ -355,8 +372,6 @@ class TimelapseControlPanel(BaseView):
             True if and only if the user is the owner of the timelapse.
         """
 
-        print(f'checking owner: {interaction.user.id}')
-
         # If the user is the owner, allow the interaction to go through
         if interaction.user.id == self.owner_id:
             return True
@@ -374,9 +389,9 @@ class TimelapseControlPanel(BaseView):
         )
 
         # Log a debug message
-        _log.info(f'Blocked user {interaction.user.display_name} '
-                  f'(id {interaction.user.id}) from using a component '
-                  f'reserved for owner on timelapse {self.name}')
+        _log.debug(f'Blocked user {interaction.user.display_name} '
+                   f'(id {interaction.user.id}) from using a component '
+                   f'reserved for owner on timelapse {self.name}')
 
         # Return False to block this interaction
         return False
@@ -489,14 +504,7 @@ class TimelapseControlPanel(BaseView):
         # If the state changed, notify the timelapse coordinator, and update
         # the database record
         if self.state != initial_state:
-            result = await self.coordinator.update_executor(  # noqa
-                self.executor, self.timelapse
-            )
-            self.executor = \
-                self.coordinator.get_timelapse(self.timelapse_id)  # noqa
-
-            # Update db record
-            await self.save_timelapse_to_db()
+            await self.on_state_update()
 
         # Update the start/end and pause/resume buttons
         self.update_start_pause_buttons()
@@ -513,7 +521,101 @@ class TimelapseControlPanel(BaseView):
             interaction: The interaction that triggered this UI event.
         """
 
-        ...
+        # Save the initial state to check for changes
+        initial_state: State = self.state
+
+        # In the READY state, this button should have been disabled
+        if self.state == State.READY:
+            embed = utils.contrived_error_embed(
+                title="Timelapse Hasn't Started",
+                text="The timelapse hasn't started yet, so you can't "
+                     f"{self.button_pause_resume.label.lower()} it. It's "
+                     f"currently {State.READY.name} to begin. Click start to "
+                     f"run it."
+            )
+            interaction.followup.send(embed=embed, ephemeral=True)
+
+        # In FINISHED state, this button should have been disabled
+        elif self.state == State.FINISHED:
+            embed = utils.contrived_error_embed(
+                title="Timelapse Finished",
+                text=f"The timelapse is already {State.FINISHED.name}, so you "
+                     f"can't {self.button_pause_resume.label.lower()} it."
+            )
+            interaction.followup.send(embed=embed, ephemeral=True)
+
+        # If FORCE_RUNNING after it *ended*, you can only stop it, not pause
+        elif self.state == State.FORCE_RUNNING and \
+                self.end_time is not None and self.end_time <= datetime.now():
+            embed = utils.contrived_error_embed(
+                title=f"Can't {self.button_pause_resume.label.capitalize()} "
+                      "Timelapse",
+                text="The timelapse was set to continue running after "
+                     "finishing. You can stop it, but you can't "
+                     f"{self.button_pause_resume.label.lower()} it."
+            )
+            interaction.followup.send(embed=embed, ephemeral=True)
+
+        # When PAUSED, it can only be resumed
+        elif self.state == State.PAUSED:
+
+            # If it already should have ended, set to FINISHED. This shouldn't
+            # be possible, but it could happen in a race condition where the
+            # end time was reached just before the user clicked "resume"
+            if self.end_time is not None and self.end_time <= datetime.now():
+                self.state = State.FINISHED
+
+            # Otherwise, just set it to WAITING. If it should be RUNNING, the
+            # executor will figure that out and adjust accordingly.
+            else:
+                self.state = State.WAITING
+
+        # In all of these states, it can be paused
+        elif self.state in (State.WAITING, State.RUNNING, State.FORCE_RUNNING):
+            self.state = State.PAUSED
+
+        # Every state should have been accounted for already
+        else:
+            raise ValueError(f"Unreachable: invalid state {self.state.name}")
+
+        # If the state changed, notify the timelapse coordinator, and update
+        # the database record
+        if self.state != initial_state:
+            await self.on_state_update()
+
+        # Update the start/end and pause/resume buttons
+        self.update_start_pause_buttons()
+
+        # Then re-render the display
+        await self.refresh_display()
+
+    async def on_state_update(self) -> None:
+        """
+        This is called by clicked_start_stop() and clicked_pause_resume() when
+        the user changes the state of the timelapse.
+
+        This updates the associated executor if one exists, and attempts to
+        create a new executor if it doesn't exist. This also updates the
+        timelapse record in the database.
+        """
+
+        if self.executor is None:
+            # If there's no executor, try to create one
+            # (PyCharm linter just REFUSES to understand Coordinator type)
+            await self.coordinator.create_executor(  # noqa
+                copy(self.timelapse))
+        else:
+            # Update the existing executor
+            await self.coordinator.update_executor(  # noqa
+                self.executor, copy(self.timelapse)
+            )
+
+        # Get the new executor in case it was created, removed, or replaced
+        self.executor = self.coordinator.get_executor(  # noqa
+            self.timelapse_id)
+
+        # Update db record
+        await self.save_timelapse_to_db()
 
     async def clicked_info(self, interaction: Interaction) -> None:
         """

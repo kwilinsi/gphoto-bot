@@ -441,7 +441,7 @@ class TimelapseCreator(BaseView):
         _log.info(f"Created a new timelapse: '{self.name}'")
 
         from .execute import TIMELAPSE_COORDINATOR
-        await TIMELAPSE_COORDINATOR.add_timelapse(tl)
+        await TIMELAPSE_COORDINATOR.create_executor(tl)
 
         await ConfirmationDialog(
             interaction=self.interaction,
