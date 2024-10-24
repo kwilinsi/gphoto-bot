@@ -261,6 +261,14 @@ class TimelapseControlPanel(utils.BaseView):
         )
         embed.add_field(name='Runtime', value=runtime_text)
 
+        # Add schedule
+        if self.schedule:
+            embed.add_field(
+                name='Schedule',
+                value=self.schedule.get_summary_str(),
+                inline=False
+            )
+
         return embed
 
     def get_start_stop_button_settings(self) -> \

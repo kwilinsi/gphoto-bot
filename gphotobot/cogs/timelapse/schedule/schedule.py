@@ -209,7 +209,10 @@ class Schedule(list[ScheduleEntry], TracksChanges):
 
         text = ''
         for entry in self:
-            line, _ = entry.days.str_header()
+            # Get the short summary text for the next entry
+            line = entry.short_summary()
+
+            # Keep adding entries until reaching the max length
             if len(text) + len(line) + 2 <= max_len:
                 text += '\n- ' + line
             else:

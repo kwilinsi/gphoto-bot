@@ -100,7 +100,8 @@ def format_duration(seconds: float | timedelta,
 
 
 def format_time(t: time | datetime | None = None,
-                use_text: bool = False) -> str:
+                use_text: bool = False,
+                meridiem: bool = True) -> str:
     """
     Given a `datetime.time`, format it nicely as a string. (This does not
     include the date portion if a datetime is given).
@@ -125,6 +126,8 @@ def format_time(t: time | datetime | None = None,
         None.
         use_text: Replace certain times (midnight and noon) with text rather
         than a time. Defaults to False.
+        meridiem: Whether to include AM/PM at the end (as opposed to omitting it
+        altogether, NOT military time). Defaults to True.
 
     Returns:
         The formatted time.
@@ -147,13 +150,13 @@ def format_time(t: time | datetime | None = None,
 
     # Parse time like normal, with preference to simpler formats
     if t.microsecond != 0:
-        return t.strftime('%-I:%M:%S.%f %p')
+        return t.strftime('%-I:%M:%S.%f' + (' %p' if meridiem else ''))
     elif t.second != 0:
-        return t.strftime('%-I:%M:%S %p')
+        return t.strftime('%-I:%M:%S' + (' %p' if meridiem else ''))
     elif t.minute != 0:
-        return t.strftime('%-I:%M %p')
+        return t.strftime('%-I:%M' + (' %p' if meridiem else ''))
     else:
-        return t.strftime('%-I%p')
+        return t.strftime('%-I' + ('%p' if meridiem else ''))
 
 
 def parse_time_delta(s: str) -> timedelta | None:

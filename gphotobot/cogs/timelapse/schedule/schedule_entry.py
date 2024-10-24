@@ -29,6 +29,9 @@ class ScheduleEntry(TracksChanges):
     # Default start time: start of the day (00:00:00.000000 a.m.)
     MIDNIGHT = time()
 
+    # A constant for 12:00 P.M.
+    NOON = time(hour=12)
+
     # Default end time: end of the day (11:59:59.999999 P.M.)
     ELEVEN_FIFTY_NINE = time(hour=23, minute=59, second=59, microsecond=999999)
 
@@ -236,6 +239,54 @@ class ScheduleEntry(TracksChanges):
             self._start_time.has_changed() or \
             self._end_time.has_changed() or \
             self._config.has_changed()
+
+    def short_summary(self) -> str:
+        """
+        Get a string with a short summary of this schedule entry. This includes
+        the days rule header string, the start/end times, and the capture
+        interval (if set).
+
+        Returns:
+            A short, user-friendly summary string.
+        """
+
+        text = self.days.str_header()[0] + ': ' + self.time_range_str()
+
+        # Add the capture interval, if specified
+        interval = self.get_config_interval()
+        if interval is not None:
+            return text + ' @' + utils.format_duration(interval, spaces=False)
+        else:
+            return text
+
+    def time_range_str(self) -> str:
+        """
+        Get a concise time range for this entry.
+
+        Returns:
+            A string with the time range.
+        """
+
+        if self.runs_all_day():
+            return "all day"
+
+        start, end = self.start_time, self.end_time
+
+        # If they're on the same side of the meridian, only list AM/PM once at
+        # the end
+        if end < self.NOON or start >= self.NOON:
+            # Use an en dash unless seconds/microseconds are included
+            use_en_dash = start.second + start.microsecond + \
+                          end.second + end.microsecond == 0
+
+            return (utils.format_time(start, meridiem=False) +  # remove AM/PM
+                    ('–' if use_en_dash else ' to ') +
+                    utils.format_time(end))
+
+        # If they're on opposite sides of the meridian, just format normally
+        # (but use_text this time for "noon" and "midnight")
+        return utils.format_time(start, use_text=True) + ' to ' + \
+            utils.format_time(end, use_text=True)
 
     def get_embed_field_strings(self) -> tuple[str, str]:
         """
