@@ -1,15 +1,16 @@
 import asyncio
-from copy import copy
+from copy import deepcopy
 from datetime import datetime
 import logging
 from typing import Optional
 
 from discord import ButtonStyle, Interaction, Embed, utils as discord_utils
 from gphoto2 import GPhoto2Error
+from sqlalchemy.exc import SQLAlchemyError
 
 from gphotobot import settings, utils
 from gphotobot.libgphoto import GCamera, gutils
-from gphotobot.sql import async_session_maker, State, Timelapse
+from gphotobot.sql import async_session_maker, State, Timelapse, ScheduleEntry
 from . import timelapse_utils
 from .execute import Coordinator, TimelapseExecutor
 from .schedule.schedule import Schedule
@@ -598,18 +599,21 @@ class TimelapseControlPanel(utils.BaseView):
         timelapse record in the database.
         """
 
+        # Update the database first to fast-fail on a SQLAlchemyError
+        await self.save_timelapse_to_db()
+
         if self.executor is None:
             # If there's no executor, try to create one
             # (PyCharm linter just REFUSES to understand Coordinator type)
             result = await self.coordinator.create_executor(  # noqa
-                copy(self.timelapse)
+                deepcopy(self.timelapse)
             )
             _log.info(("Created" if result else "Didn't create") +
-                      f"executor for timelapse '{self.name}'")
+                      f" executor for timelapse '{self.name}'")
         else:
             # Update the existing executor
             result = await self.coordinator.update_executor(  # noqa
-                self.executor, copy(self.timelapse)
+                self.executor, deepcopy(self.timelapse)
             )
             if result == True:  # noqa
                 _log.info(f"Updated executor for timelapse '{self.name}'")
@@ -622,9 +626,6 @@ class TimelapseControlPanel(utils.BaseView):
         self.executor = self.coordinator.get_executor(  # noqa
             self.timelapse_id
         )
-
-        # Update db record
-        await self.save_timelapse_to_db()
 
     async def clicked_info(self, interaction: Interaction) -> None:
         """
@@ -646,7 +647,7 @@ class TimelapseControlPanel(utils.BaseView):
 
         await TimelapseCreator.edit_existing(
             parent=self,
-            timelapse=copy(self.timelapse),
+            timelapse=deepcopy(self.timelapse),
             callback=self.on_timelapse_edited,
             callback_cancel=self.refresh_display
         )
@@ -756,6 +757,20 @@ class TimelapseControlPanel(utils.BaseView):
             timelapse: The edited timelapse.
         """
 
+        initial_timelapse = self.timelapse
         self.timelapse = timelapse
-        await self.on_update()
+
+        # Try to update the timelapse record and executor
+        try:
+            await self.on_update()
+        except (SQLAlchemyError, AssertionError) as e:
+            # Catch SQLAlchemyErrors and AssertionErrors, which are sometimes
+            # raised by SQLAlchemy here. If they fail, revert to the original
+            # timelapse
+            _log.error("Fatal exception updating the "
+                       f"'{initial_timelapse.name}' timelapse from the "
+                       f"control panel: {e}")
+            self.timelapse = initial_timelapse
+
+        # Refresh the display
         await self.refresh_display()

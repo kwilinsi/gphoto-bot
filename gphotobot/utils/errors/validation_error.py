@@ -9,8 +9,8 @@ class ValidationError(Exception):
 
     def __init__(self,
                  *args,
-                 attr: Optional[str] = None,
-                 msg: Optional[str] = None):
+                 attr: str | None = None,
+                 msg: str | None = None):
         """
         Initialize a validation error.
 
@@ -21,5 +21,21 @@ class ValidationError(Exception):
         """
 
         super().__init__(*args)
-        self.attr: Optional[str] = attr
-        self.msg: Optional[str] = msg
+        self.attr: str | None = attr
+        self.msg: str | None = msg
+
+    def __str__(self) -> str:
+        """
+        Get a somewhat user-friendly string representation of this error for
+        use in log messages. This includes both the attribute and message, if
+        they're both present. If either is None, it's omitted.
+
+        Returns:
+            A string representation.
+        """
+
+        return (
+                'ValidationError' +
+                (f' on {self.attr}' if self.attr else '') + ': ' +
+                (self.msg if self.msg else 'no message given')
+        )

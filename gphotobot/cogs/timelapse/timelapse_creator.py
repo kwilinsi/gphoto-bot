@@ -497,8 +497,10 @@ class TimelapseCreator(utils.BaseView):
 
         # Change in the timelapse record too, if there is one
         if self._timelapse is not None:
-            self._timelapse.schedule_entries = \
-                [] if new_schedule is None else new_schedule.to_db()
+            self._timelapse.schedule_entries = (
+                [] if new_schedule is None
+                else new_schedule.to_db(self._timelapse.id, force_copy=True)
+            )
 
         # Update the button text
         if new_schedule is None:

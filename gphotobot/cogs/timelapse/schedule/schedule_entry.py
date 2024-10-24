@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import date, datetime, time, timedelta
 from typing import Optional
 
@@ -32,21 +33,28 @@ class ScheduleEntry(TracksChanges):
     ELEVEN_FIFTY_NINE = time(hour=23, minute=59, second=59, microsecond=999999)
 
     def __init__(self,
-                 days: Optional[Days] = None,
+                 index: int,
+                 days: Days | None = None,
                  start_time: time = MIDNIGHT,
                  end_time: time = ELEVEN_FIFTY_NINE,
-                 config: Optional[dict[str, any]] = None):
+                 config: Optional[dict[str, any]] = None,
+                 db_record: SQLScheduleEntry | None = None):
         """
         Initialize an entry for a schedule.
 
         Args:
+            index: The index of this entry within the schedule.
             days: The day (or days) this applies. If None, this defaults to
             every day of the week. Defaults to None.
             start_time: The time of day this rule starts. Defaults to midnight.
             end_time: The time of day this rule ends. Defaults to 11:59:59 p.m.
             config: Timelapse configuration specific to this schedule entry.
+            db_record: An optional database record to associated with this
+            entry.
         """
 
+        # Schedule entry attributes
+        self._index: ChangeTracker[int] = ChangeTracker(index)
         self._days: ChangeTracker[Days] = ChangeTracker(
             DaysOfWeek.every_day() if days is None else days
         )
@@ -55,6 +63,9 @@ class ScheduleEntry(TracksChanges):
         self._config: ChangeTracker[dict[str, any]] = ChangeTracker(
             {} if config is None else config
         )
+
+        # Optional database record if this was made from an existing db entry
+        self._db_record: SQLScheduleEntry | None = db_record
 
     @classmethod
     def from_db(cls, record: SQLScheduleEntry) -> ScheduleEntry:
@@ -69,11 +80,25 @@ class ScheduleEntry(TracksChanges):
         """
 
         return cls(
-            days=Days.from_db(record.days),
+            index=record.index,
+            days=Days.create_rule_from_db(record.days),
             start_time=record.start_time,
             end_time=record.end_time,
-            config=cls.config_from_db(record.config)
+            config=cls.config_from_db(record.config),
+            db_record=record
         )
+
+    @property
+    def index(self) -> int:
+        return self._index.current
+
+    @index.setter
+    def index(self, i: int) -> None:
+        self._index.update(i)
+
+        # Update db entry if present
+        if self.db_record is not None:
+            self.db_record.index = i
 
     @property
     def days(self) -> Days:
@@ -83,6 +108,10 @@ class ScheduleEntry(TracksChanges):
     def days(self, d: Days) -> None:
         self._days.update(d)
 
+        # Update db entry if present
+        if self.db_record is not None:
+            self.db_record.days = d
+
     @property
     def start_time(self) -> time:
         return self._start_time.current
@@ -90,6 +119,10 @@ class ScheduleEntry(TracksChanges):
     @start_time.setter
     def start_time(self, t: time) -> None:
         self._start_time.update(t)
+
+        # Update db entry if present
+        if self.db_record is not None:
+            self.db_record.start_time = t
 
     @property
     def end_time(self) -> time:
@@ -99,9 +132,72 @@ class ScheduleEntry(TracksChanges):
     def end_time(self, t: time) -> None:
         self._end_time.update(t)
 
+        # Update db entry if present
+        if self.db_record is not None:
+            self.db_record.end_time = t
+
     @property
     def config(self) -> dict[str, any]:
         return self._config.current
+
+    def set_config_entry(self, key: str, value: any) -> bool:
+        """
+        Add the specified key/value pair to the config dict.
+
+        Args:
+            key: The key to add.
+            value: The value to pair with the key.
+
+        Returns:
+            True if and only if something changed. False if the key was already
+            paired with the given value in the config dict.
+        """
+
+        cfg = self._config.current
+
+        # Make sure the key isn't already paired with this value
+        if key not in cfg or cfg[key] != value:
+            cfg[key] = value
+
+            # Update db entry if present
+            if self.db_record is not None:
+                self.db_record.config = self.config_to_db()
+
+            return True
+
+        # Nothing changed; the key was already paired with that value
+        return False
+
+    def delete_config_entry(self, key: str) -> bool:
+        """
+        Remove the specified key and its associated value from the config
+        dict.
+
+        Args:
+            key: The key to remove.
+
+        Returns:
+            True if and only if the key was removed.
+        """
+
+        cfg = self._config.current
+
+        # Make sure the key is in there first
+        if key in cfg:
+            del cfg[key]
+
+            # Update db entry if present
+            if self.db_record is not None:
+                self.db_record.config = self.config_to_db()
+
+            return True
+
+        # Nothing changed; key wasn't in the config to begin with
+        return False
+
+    @property
+    def db_record(self) -> SQLScheduleEntry | None:
+        return self._db_record
 
     def __str__(self):
         """
@@ -200,7 +296,7 @@ class ScheduleEntry(TracksChanges):
 
         return header, body + '\n' + config
 
-    def get_config_text(self) -> Optional[str]:
+    def get_config_text(self) -> str | None:
         """
         Get text for an embed that lists the config options. If there are no
         custom config settings for this schedule entry, it returns None.
@@ -235,7 +331,7 @@ class ScheduleEntry(TracksChanges):
 
         return self.start_time == self.MIDNIGHT and self.ends_at_midnight()
 
-    def set_config_interval(self, interval: Optional[timedelta]) -> bool:
+    def set_config_interval(self, interval: timedelta | None) -> bool:
         """
         Set a config entry for a custom capture interval.
 
@@ -248,17 +344,11 @@ class ScheduleEntry(TracksChanges):
         """
 
         if interval is None:
-            if 'capture_interval' in self.config:
-                del self.config['capture_interval']
-                return True
-        elif self.get_config_interval() != interval:
-            self.config['capture_interval'] = interval
-            return True
+            return self.delete_config_entry('capture_interval')
+        else:
+            return self.set_config_entry('capture_interval', interval)
 
-        # Nothing changed
-        return False
-
-    def get_config_interval(self) -> Optional[timedelta]:
+    def get_config_interval(self) -> timedelta | None:
         """
         Get the config entry for a custom capture interval, if one has been set.
 
@@ -268,7 +358,7 @@ class ScheduleEntry(TracksChanges):
 
         return self.config.get('capture_interval', None)
 
-    def config_to_db(self) -> Optional[str]:
+    def config_to_db(self) -> str | None:
         """
         Get a string that contains the config record ready for use in the
         database. This must be reversible with config_from_db(). Ideally, this
@@ -302,7 +392,7 @@ class ScheduleEntry(TracksChanges):
         return '\n'.join(f"{k}: {v}" for k, v in str_mapping.items())
 
     @staticmethod
-    def config_from_db(config_str: Optional[str]) -> Optional[dict[str, any]]:
+    def config_from_db(config_str: str | None) -> Optional[dict[str, any]]:
         """
         Given a string created with config_to_db() that encodes the custom
         configuration for a schedule entry in the database, parse it into a
@@ -331,16 +421,34 @@ class ScheduleEntry(TracksChanges):
 
         return config
 
-    def to_db(self) -> SQLScheduleEntry:
+    def to_db(self,
+              timelapse_id: int | None = None,
+              force_copy: bool = False) -> SQLScheduleEntry:
         """
-        Convert this schedule entry to a SQL record that can be added to the
+        Convert this schedule entry to a record that can be added to the
         database.
 
+        If this entry is already associated with a record, the existing record
+        is returned.
+
+        Args:
+            timelapse_id: The id of the timelapse to which this schedule entry
+            is attached. This is optional. Defaults to None.
+            force_copy: Whether to create a new database record even if there's
+            an existing one. Defaults to False.
+
         Returns:
-            A SQL record for this entry.
+            A database record for this entry.
         """
 
+        # Use existing record if present
+        if self.db_record is not None:
+            return deepcopy(self.db_record) if force_copy else self.db_record
+
+        # Otherwise, make a new one
         return SQLScheduleEntry(
+            timelapse_id=timelapse_id,
+            index=self.index,
             start_time=self.start_time,
             end_time=self.end_time,
             days=self.days.to_db(),

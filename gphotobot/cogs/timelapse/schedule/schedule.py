@@ -168,6 +168,10 @@ class Schedule(list[ScheduleEntry], TracksChanges):
         self[destination] = self[index]
         self[index] = swap
 
+        # Update indices of the entries themselves
+        self[destination].index = destination
+        self[index].index = index
+
     def get_summary_str(self,
                         max_len: int = const.EMBED_FIELD_VALUE_LENGTH) -> str:
         """
@@ -209,15 +213,24 @@ class Schedule(list[ScheduleEntry], TracksChanges):
     def has_changed(self) -> bool:
         return any(e.has_changed() for e in self)
 
-    def to_db(self) -> list[SQLScheduleEntry]:
+    def to_db(self,
+              timelapse_id: int | None = None,
+              force_copy: bool = False) -> list[SQLScheduleEntry]:
         """
         Convert all the schedule entries into database records.
+
+        Args:
+            timelapse_id: The id of the timelapse to which this schedule is
+            attached. This is optional. Defaults to None.
+            force_copy: Whether to create a new database record even if there's
+            an existing one. Defaults to False.
 
         Returns:
             A list of SQL schedule entry records.
         """
 
-        return [e.to_db() for e in self]
+        return [e.to_db(timelapse_id=timelapse_id, force_copy=force_copy)
+                for e in self]
 
     def active_entry_at(self, dt: datetime) -> Optional[ScheduleEntry]:
         """

@@ -86,7 +86,8 @@ class Timelapse(Base):
     # noinspection PyUnresolvedReferences, SpellCheckingInspection
     schedule_entries: Mapped[list["ScheduleEntry"]] = relationship(
         back_populates='timelapse',
-        lazy='selectin'
+        lazy='selectin',
+        cascade='all, delete-orphan'
     )
 
 

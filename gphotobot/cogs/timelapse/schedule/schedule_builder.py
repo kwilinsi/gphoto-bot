@@ -302,7 +302,11 @@ class ScheduleBuilder(utils.BaseView, TracksChanges):
             await self.refresh_display()
 
         # Send a view for making a new entry
-        await ScheduleEntryBuilder(self, callback).refresh_display()
+        await ScheduleEntryBuilder(
+            parent=self,
+            callback=callback,
+            index=len(self.schedule.current)
+        ).refresh_display()
 
     async def select_button_entry(
             self,
@@ -382,9 +386,9 @@ class ScheduleBuilder(utils.BaseView, TracksChanges):
                 await self.refresh_display()
 
             await ScheduleEntryBuilder(
-                self,
-                callback,
-                self.schedule.current[index]
+                parent=self,
+                callback=callback,
+                entry=self.schedule.current[index]
             ).refresh_display()
         elif mode == 'remove':
             # Remove the selected entry

@@ -21,7 +21,8 @@ class ScheduleEntryBuilder(utils.BaseView):
     def __init__(self,
                  parent: Interaction[GphotoBot] | utils.BaseView | Message,
                  callback: Callable[[Optional[ScheduleEntry]], Awaitable[None]],
-                 entry: Optional[ScheduleEntry] = None) -> None:
+                 index: int | None = None,
+                 entry: ScheduleEntry | None = None) -> None:
         """
         Initialize a view for creating/editing a schedule entry.
 
@@ -29,10 +30,27 @@ class ScheduleEntryBuilder(utils.BaseView):
             parent: The interaction, view, or message to use when refreshing
             the display.
             callback: The function to call when done editing.
+            index: The index of the entry. If omitted, this defaults to the
+            index of the existing entry. Either the entry or the index must be
+            given. Defaults to None.
             entry: An existing schedule entry to edit, or None to create a new
             one. Defaults to None.
+
+        Raises:
+            ValueError: If both the entry and index are None, or if they have
+            different indices.
         """
 
+        # Validate index/entry input
+        if index is None and entry is None:
+            raise ValueError('You must specify either an existing entry or '
+                             'the index for a new one.')
+        elif index is not None and entry is not None and index != entry.index:
+            raise ValueError(f"The entry index {entry.index} doesn't match "
+                             f"the given index {index}. Either they need to "
+                             f"match exactly, or one must be None.")
+
+        # Initialize the base view
         super().__init__(
             parent=parent,
             callback=callback,
@@ -40,7 +58,9 @@ class ScheduleEntryBuilder(utils.BaseView):
                                  'create` to build a custom schedule.'
         )
 
-        self.entry: Optional[ScheduleEntry] = entry
+        # Set the index and entry. If index is omitted, use the entry value
+        self.index: int = entry.index if index is None else index
+        self.entry: ScheduleEntry | None = entry
 
         # If there's an existing entry, use its rule type as the default
         if entry is None or entry.days is None:
@@ -272,7 +292,7 @@ class ScheduleEntryBuilder(utils.BaseView):
         if selection == 'Specific dates':
             # Switch to the Dates rule type
             if self.entry is None:
-                self.entry = ScheduleEntry(days=Dates())
+                self.entry = ScheduleEntry(index=self.index, days=Dates())
             elif isinstance(self.entry.days, Dates):
                 return
             else:
@@ -282,9 +302,12 @@ class ScheduleEntryBuilder(utils.BaseView):
             every_day = selection == 'Every day'
 
             if self.entry is None:
-                self.entry = ScheduleEntry(days=DaysOfWeek(
-                    utils.EVERY_DAY_OF_WEEK if every_day else ()
-                ))
+                self.entry = ScheduleEntry(
+                    index=self.index,
+                    days=DaysOfWeek(
+                        utils.EVERY_DAY_OF_WEEK if every_day else ()
+                    )
+                )
             elif isinstance(self.entry.days, DaysOfWeek):
                 change_components = False
 
@@ -336,7 +359,8 @@ class ScheduleEntryBuilder(utils.BaseView):
 
         if self.entry is None:
             # Create a new schedule entry if there wasn't one
-            self.entry = ScheduleEntry(start_time=start_time,
+            self.entry = ScheduleEntry(index=self.index,
+                                       start_time=start_time,
                                        end_time=end_time)
             utils.set_menu_default(self.menu_rule, self.entry.days.str_rule())
             self.components = self.add_rule_specific_components(self.entry.days)
@@ -371,7 +395,7 @@ class ScheduleEntryBuilder(utils.BaseView):
                 return
 
             # Create a default entry, so we can set its interval
-            self.entry = ScheduleEntry()
+            self.entry = ScheduleEntry(index=self.index)
             utils.set_menu_default(self.menu_rule, self.entry.days.str_rule())
             self.components = self.add_rule_specific_components(self.entry.days)
 
