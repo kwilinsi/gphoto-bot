@@ -46,12 +46,18 @@ def format_duration(seconds: float | timedelta,
     if isinstance(seconds, timedelta):
         seconds = seconds.total_seconds()
 
+    # We'll use the absolute value of seconds and then tack on the negative
+    # sign if it was originally negative
+    is_negative: bool = seconds < 0
+    if is_negative:
+        seconds = abs(seconds)
+
     # Separate rounding if always_decimal is disabled
     if not always_decimal:
         if seconds < 1:
-            return f'{seconds:.2f}s'
+            return f"{'-' if is_negative else ''}{seconds:.2f}s"
         elif seconds < 10:
-            return f'{seconds:.1f}s'
+            return f"{'-' if is_negative else ''}{seconds:.1f}s"
 
         # Omit decimals after the 10-second mark
         seconds = int(seconds)
@@ -86,9 +92,11 @@ def format_duration(seconds: float | timedelta,
     if seconds > 0:
         time_str += f' {seconds}s'
 
-    # Return the formatted string (sans the first character, a space) or with
-    # all spaces removed, if spaces == False
-    return time_str[1:] if spaces else time_str.replace(' ', '')
+    # Trim the first character (a space) or every space if spaces are omitted
+    time_str = time_str[1:] if spaces else time_str.replace(' ', '')
+
+    # Add a negative sign if it was originally negative
+    return ('-' if is_negative else '') + time_str
 
 
 def format_time(t: time | datetime | None = None,

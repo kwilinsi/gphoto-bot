@@ -50,7 +50,10 @@ async def main(args: Namespace):
     # Start the bot
     log.debug(f'Starting {bot.__class__.__name__}...')
     async with bot:
-        await bot.start(settings.DISCORD_API_TOKEN)
+        try:
+            await bot.start(settings.DISCORD_API_TOKEN)
+        except KeyboardInterrupt as e:
+            log.warning(f'Exiting on keyboard interrupt: {e}')
 
 
 if __name__ == '__main__':

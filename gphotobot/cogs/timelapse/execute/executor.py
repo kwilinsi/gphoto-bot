@@ -4,7 +4,7 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from datetime import datetime
 import logging
-from typing import Literal, Union
+from typing import Literal, Union, Any
 
 from gphotobot import utils
 from gphotobot.sql import async_session_maker, State, Timelapse
@@ -49,9 +49,6 @@ class TimelapseExecutor(utils.TaskLoop):
         self._state_listener_lock: asyncio.Lock = asyncio.Lock()
         self.state_listeners: list[Callable[[State], Awaitable[None]]] = []
 
-        # References to asyncio tasks created when/if this is cancelled
-        self._t1 = self._t2 = None
-
         _log.info(f"Initialized a new executor instance: {self}")
 
     @property
@@ -88,6 +85,11 @@ class TimelapseExecutor(utils.TaskLoop):
     def stop(self) -> None:
         super().stop()
         _log.info(f"Stopping executor task loop {self}")
+
+    def start(self, *args: Any, **kwargs: Any) -> asyncio.Task[None]:
+        _log.debug(f'Starting the task loop for executor {self}')
+        self.cancelling = False
+        return super().start(*args, **kwargs)
 
     async def run(self):
         self.timelapse.frames += 1
@@ -174,15 +176,6 @@ class TimelapseExecutor(utils.TaskLoop):
 
         #################### FINISHED / PAUSED STATES ####################
 
-        # If the state is currently FINISHED, keep it that way UNLESS the end
-        # time is in the future, in which set it to WAITING (temporarily)
-        if state == State.FINISHED:
-            if end is not None and end > now:
-                state = State.READY  # Idk, not sure yet what this should be
-            else:
-                # It's still finished, ok?
-                return ExecutorEvent.with_state(now, tl)
-
         # If the state is currently PAUSED, keep it that way UNLESS the end
         # time is in the past, in which case set it should have FINISHED
         if state == State.PAUSED:
@@ -192,19 +185,31 @@ class TimelapseExecutor(utils.TaskLoop):
                 State.FINISHED if end is not None and end <= now else state
             )
 
-        #################### GLOBAL START/END TIMES ####################
-
-        # If the start time is given and in the future, it should be WAITING;
-        # If the end time is given and in the past, it should be FINISHED.
-        # But both of these rules can be overridden with FORCE_RUNNING.
-        if (start is not None and start > now) or \
-                (end is not None and end <= now):
+        # If the start time is in the future, it should always be WAITING to
+        # start soon (unless manually paused, which we already checked, or
+        # manually started with FORCE_RUNNING)
+        if start is not None and start > now:
             return ExecutorEvent.with_state(
                 now,
                 tl,
-                state if state == State.FORCE_RUNNING
-                else State.WAITING if (start is not None and start > now)
-                else State.FINISHED
+                state if state == State.FORCE_RUNNING else State.WAITING
+            )
+
+        # If the state is currently FINISHED, then keep it that way UNLESS the
+        # end times is in the future.
+        if state == State.FINISHED:
+            if end is None or end <= now:
+                return ExecutorEvent.with_state(now, tl)  # Yep, still finished
+
+        #################### READY & GLOBAL END TIME ####################
+
+        # If the end time is given and in the past, it should be FINISHED,
+        # unless the user overrode that with FORCE_RUNNING.
+        if end is not None and end <= now:
+            return ExecutorEvent.with_state(
+                now,
+                tl,
+                state if state == State.FORCE_RUNNING else State.FINISHED
             )
 
         # If the start time is not set, and the state is READY, then it's just
@@ -224,14 +229,13 @@ class TimelapseExecutor(utils.TaskLoop):
                 return ExecutorEvent.with_state(
                     now,
                     tl,
-                    State.READY if state == State.READY or
-                                   state == State.WAITING
+                    State.READY if state in (State.READY, State.WAITING)
                     else State.RUNNING
                 )
             else:
                 # If this line is reached, it must be RUNNING. We know from
-                # earlier that the start time is in the past and that it's not
-                # PAUSED or FINISHED.
+                # earlier that it already started and that it's not PAUSED or
+                # FINISHED.
                 return ExecutorEvent.with_state(now, tl, State.RUNNING)
 
         #################### CURRENTLY RUNNING ####################
@@ -251,8 +255,8 @@ class TimelapseExecutor(utils.TaskLoop):
             # Otherwise, active this entry
             return ExecutorEvent.from_schedule_entry(now, tl, entry)
 
-    async def determine_next_event(self, now: datetime) -> \
-            Union[ExecutorEvent, Literal['cancel', 'indefinite']]:
+    async def determine_next_event(self,
+                                   now: datetime) -> ExecutorEvent | None:
         """
         Determine the next execution event for updating this timelapse executor.
         This is based on the timelapse settings and schedule and is relative
@@ -261,20 +265,19 @@ class TimelapseExecutor(utils.TaskLoop):
         This method assumes that determine_current_event() has been called and
         used to update the timelapse settings/state.
 
-        Note that this can return literal strings in two different situations,
-        indicating that there are no more automated, upcoming events:
+        This will return None in two different situations:
 
-        - It returns "cancel" if the timelapse is currently READY, PAUSED,
-          or FINISHED. These require user input for anything to happen, so the
-          executor should be cancelled for the time being.
-        - It returns "indefinite" if there's no schedule (or no more schedule
-          entries) and no end_time. It'll just keep RUNNING or FORCE_RUNNING
-          until either (a) the user intervenes, or (b) it's RUNNING and reaches
-          the total_frames end condition.
+        - The timelapse is currently READY, PAUSED, or FINISHED. These require
+          user input for anything to happen, so the executor is also cancelled
+          with self.cancel().
+
+        - There's no schedule (or no more schedule entries) and no end_time.
+          The timelapse will just keep RUNNING or FORCE_RUNNING until either
+          (a) the user intervenes, or (b) it's reaches the total_frames end
+          condition in regular RUNNING mode.
 
         Args:
-            now: The "current" time to use while calculating the next event,
-            or the literal strings "cancel" or "indefinite".
+            now: The "current" time to use while calculating the next event.
 
         Returns:
             The next event, or None if there are no more automated events.
@@ -283,56 +286,71 @@ class TimelapseExecutor(utils.TaskLoop):
         #################### PAUSED, FINISHED, or READY ####################
 
         cur_state: State = self.determine_current_event(now).state
+        tl = self.timelapse
+        state, start, end = tl.state, tl.start_time, tl.end_time
 
         # If paused with an end time in the future, the next event is when it
         # reaches that end time and finishes
-        if cur_state == State.PAUSED and \
-                self.timelapse.end_time is not None and \
-                self.timelapse.end_time > now:
-            return ExecutorEvent.with_state(self.timelapse.end_time,
-                                            self.timelapse, State.PAUSED)
+        if cur_state == State.PAUSED and end is not None and end >= now:
+            # (Used end >= now instead of > just in case there's a bug, and
+            # it should be finished right now)
+            return ExecutorEvent.with_state(end, tl, State.FINISHED)
 
         # Next event is unknown; user input needed for anything to happen
         if cur_state in (State.PAUSED, State.FINISHED, State.READY):
-            return 'cancel'
+            self.cancel()  # Probably already cancelled in apply_event()
+            return None
 
         #################### FORCE RUNNING ####################
 
         # If it's past the end time, but it's set to force run, we don't know
-        # when it'll end. Run indefinitely until the user stops it manually
-        if self.timelapse.end_time is not None and \
-                now >= self.timelapse.end_time and \
-                self.timelapse.state == State.FORCE_RUNNING:
-            return 'indefinite'
+        # when it'll end. Run indefinitely until the user stops it manually.
+        # The other FORCE_RUNNING case (where it hasn't started yet) is covered
+        # below under "BEFORE START TIME"
+        if cur_state == State.FORCE_RUNNING and end is not None and end <= now:
+            return None
+
+        #################### BEFORE START TIME ####################
+
+        # If it hasn't reached the start time yet, then it'll do something at
+        # the start time. Either that's when it starts RUNNING, or, if there's
+        # a schedule that takes effect later, then it'll start WAITING for the
+        # first schedule entry.
+        if start is not None and self.timelapse.start_time > now:
+            if tl.has_schedule:
+                # It has a schedule. Check if there's an active entry at the
+                # start time
+                entry = self.schedule.active_entry_at(now)
+                if entry is None:
+                    # No active entry. Wait until the schedule starts running
+                    return ExecutorEvent.with_state(start, tl, State.WAITING)
+                else:
+                    # Activate this entry at the start time
+                    return ExecutorEvent.from_schedule_entry(start, tl, entry)
+
+            # There's no schedule. Switch to RUNNING at the start time
+            return ExecutorEvent.with_state(start, tl, State.RUNNING)
 
         #################### CHECK SCHEDULE ####################
 
-        # If it has a schedule, get an event for the next schedule entry
+        # At this point we know that it started running. If it has a schedule,
+        # get an event for the next schedule entry
         if self.timelapse.has_schedule:
             event = ExecutorEvent.from_schedule_event(
-                self.timelapse,
+                tl,
                 self.schedule.next_event_after(now)
             )
 
-            # Use the upcoming schedule event
-            if event is not None:
+            # If this event exists and is before the end time, use it
+            if event is not None and \
+                    (end is not None and event.timestamp < end):
                 return event
 
         #################### NO SCHEDULE EVENTS ####################
 
-        # If it hasn't reached the start time yet, then the next event is when
-        # it starts RUNNING (as there isn't a schedule to wait for).
-        if self.timelapse.start_time is not None and \
-                self.timelapse.start_time > now:
-            return ExecutorEvent.with_state(
-                self.timelapse.start_time,
-                self.timelapse,
-                State.RUNNING
-            )
-
         # Either there's no schedule, or there aren't any upcoming schedule
-        # entries to wait for. Just wait until the global end time for the
-        # timelapse. Switch to the FINISHED state when it ends.
+        # events to wait for before the end time. Just wait until the global
+        # end time for the timelapse. Switch to the FINISHED when it ends.
         if self.timelapse.end_time is not None:
             return ExecutorEvent.with_state(
                 self.timelapse.end_time,
@@ -340,8 +358,8 @@ class TimelapseExecutor(utils.TaskLoop):
                 State.FINISHED
             )
         else:
-            # We don't know when it'll end. Just wait indefinitely
-            return 'indefinite'
+            # We don't know when it'll end. Just keep going indefinitely
+            return None
 
     async def apply_event(self, event: ExecutorEvent):
         """
@@ -351,33 +369,50 @@ class TimelapseExecutor(utils.TaskLoop):
             event: The event to apply.
         """
 
+        _log.debug(f"Applying executor event {event} to executor {self}")
+
+        if event.state == State.FINISHED:
+            # This timelapse finished. Run the callback to cancel it and delete
+            # it from the coordinator. Then save any last changes to the db.
+            self.timelapse.state = State.FINISHED
+            await self.stop_callback(self)
+            await self._run_state_listeners(State.FINISHED)
+            await self.update_db()
+            _log.info(f"Timelapse '{self.name}' (id {self.id}) just finished")
+            return
+
         # If the state changed, update the SQL db
         if self.timelapse.state != event.state:
             self.timelapse.state = event.state
-            _log.info(f"Timelapse '{self.name}' ({self.id}) "
-                      f" is now {event.state.name}")
+            _log.info(f"Timelapse '{self.name}' (id {self.id}) "
+                      f"is now {event.state.name}")
             await self.update_db()
             await self._run_state_listeners(event.state)
 
-        if event.state in (State.READY, State.PAUSED, State.FINISHED):
-            # The timelapse stopped; no need to update any settings. Run the
-            # callback to cancel this and delete it from the coordinator, and
-            # then save any last changes to the database.
-            await self.stop_callback(self)
-            await self.update_db()
+        if event.state in (State.READY, State.PAUSED):
+            # Cancel to stop taking pictures, but don't delete this executor
+            self.cancel()
             return
 
         # Update the interval, if it was modified
         if self.seconds != event.interval:
+            _log.debug(
+                f'Changing interval from '
+                f'{utils.format_duration(self.seconds, spaces=False)} '
+                f'to {utils.format_duration(event.interval, spaces=False)}'
+            )
             self.change_interval(seconds=event.interval)
 
-        # If it should be (FORCE_)RUNNING, start this task loop. If it
-        # shouldn't be running, cancel it
-        do_run = event.state in (State.RUNNING, State.FORCE_RUNNING)
-        if self.is_running() and not do_run:
-            self.cancel()
-        elif not self.is_running() and do_run:
-            self.start()
+        # Make sure this is running when it should be and not running when it
+        # shouldn't be.
+        if event.state in (State.RUNNING, State.FORCE_RUNNING):
+            # Should be running
+            if not self.is_running():
+                self.start()
+        else:
+            # Shouldn't be running
+            if self.is_running():
+                self.cancel()
 
     async def update_db(self) -> None:
         """

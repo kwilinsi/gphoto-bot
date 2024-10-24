@@ -46,15 +46,23 @@ class TimelapseControlPanel(utils.BaseView):
         self.timelapse: Timelapse = timelapse
         self.camera: GCamera = camera
 
-        # Get the coordinator and timelapse executor running this timelapse
+        # Get the coordinator for timelapse executors. Register a executor
+        # listener for this timelapse
         from .execute import TIMELAPSE_COORDINATOR
         self.coordinator: Coordinator = TIMELAPSE_COORDINATOR
-        self.executor: Optional[TimelapseExecutor] = \
-            TIMELAPSE_COORDINATOR.get_executor(timelapse.id)
+        self._t1 = asyncio.create_task(
+            self.coordinator.register_listener(  # noqa
+                self.on_executor_add_remove,
+                timelapse.id
+            )
+        )
 
-        # Register a listener that runs when the executor changes state/interval
+        # Get the executor (if there is one), and register a listener that
+        # runs when it changes state
+        self.executor: TimelapseExecutor | None = \
+            TIMELAPSE_COORDINATOR.get_executor(timelapse.id)
         if self.executor is not None:
-            self._t = asyncio.create_task(
+            self._t2 = asyncio.create_task(
                 self.executor.register_listener(self.on_executor_state_change)
             )
 
@@ -285,7 +293,8 @@ class TimelapseControlPanel(utils.BaseView):
                 ButtonStyle.primary, True
 
         elif self.state == State.FORCE_RUNNING or \
-                (self.state == State.RUNNING and self.end_time is None):
+                (self.state in (State.WAITING, State.RUNNING, State.PAUSED) and
+                 self.end_time is None):
             # Either force_running, or it just runs until the user stops it
             return "Stop", settings.EMOJI_STOP, ButtonStyle.danger, True
 
@@ -294,7 +303,8 @@ class TimelapseControlPanel(utils.BaseView):
             # but gray if PAUSED so that the emphasis is on the green resume
             # button
             return (
-                "Start", settings.EMOJI_START,
+                "Start",
+                settings.EMOJI_START,
                 ButtonStyle.secondary if self.state == State.PAUSED
                 else ButtonStyle.success,
                 False
@@ -348,14 +358,14 @@ class TimelapseControlPanel(utils.BaseView):
         self.button_start_stop.label = label
         self.button_start_stop.emoji = emoji
         self.button_start_stop.style = style
-        self.button_start_stop.enable = enable
+        self.button_start_stop.disabled = not enable
 
         # Update the pause/remove button
         label, emoji, style, enable = self.get_pause_resume_button_settings()
         self.button_pause_resume.label = label
         self.button_pause_resume.emoji = emoji
         self.button_pause_resume.style = style
-        self.button_pause_resume.enable = enable
+        self.button_pause_resume.disabled = not enable
 
     async def require_owner(self, interaction: Interaction) -> bool:
         """
@@ -408,20 +418,18 @@ class TimelapseControlPanel(utils.BaseView):
         initial_state: State = self.state
 
         if self.state == State.WAITING:
-            # If clicking start while waiting, either the user is trying to
-            # FORCE_RUNNING early, or there's a bug
-            if self.start_time is None:
-                _log.warning("Unreachable: user clicked start while state "
-                             f"was {State.WAITING.name} and start time wasn't "
-                             f"set; should have been {State.READY.name}")
-                # Pretend it *was* State.READY
-                self.state = State.READY
-            elif self.start_time > datetime.now():
+            # If clicking start/stop while waiting, either the user is trying to
+            # FORCE_RUNNING early, or stop with a manual end time
+            if self.start_time is not None and \
+                    self.start_time > datetime.now():
                 # Start time is in the future. Force run now
                 self.state = State.FORCE_RUNNING
+            elif self.end_time is None:
+                # The user just clicked stop; simple enough
+                self.state = State.FINISHED
             else:
-                # If we passed the start time, then either (a) the start button
-                # was left enabled by a bug, or (b) there was some race
+                # If we passed the start time, then either (a) the start/stop
+                # button was left enabled by a bug, or (b) there was some race
                 # condition where the embed was rendered *before* the start time
                 # but then the user sat around waiting before clicking "Start",
                 # and by that time the timelapse had started. (Notably the user
@@ -429,14 +437,14 @@ class TimelapseControlPanel(utils.BaseView):
                 # the executor should trigger an embed update as soon as the
                 # executor starts running). Anyway, this is probably nothing
                 # to worry about. Just log a message and re-render the embed
-                _log.warning("User clicked start wile state was "
-                             f"{State.WAITING.name} and start time already "
-                             f"passed. This is probably a race condition "
-                             f"issue and nothing to worry about")
+                _log.warning("User clicked start/stop wile state was "
+                             f"{State.WAITING.name} with start time "
+                             f"{utils.format_time(self.start_time)} and end "
+                             f"time {utils.format_time(self.end_time)}. This "
+                             f"is probably a race condition issue and nothing "
+                             f"to worry about")
 
-        # This is intentionally if and not elif, just for this one case, to
-        # allow resolution of WAITING to READY in the previous case
-        if self.state == State.READY:
+        elif self.state == State.READY:
             # Timelapse is ready, and the user started it
 
             if self.end_time is not None and self.end_time < datetime.now():
@@ -445,7 +453,7 @@ class TimelapseControlPanel(utils.BaseView):
                     text='The timelapse already passed its end time and should '
                          f'have been marked {State.FINISHED.name}'
                 )
-                interaction.followup.send(embed=embed, ephemeral=True)
+                await interaction.followup.send(embed=embed, ephemeral=True)
                 self.state = State.FINISHED
             else:
                 self.state = State.RUNNING
@@ -461,14 +469,18 @@ class TimelapseControlPanel(utils.BaseView):
                 self.state = State.FINISHED
 
         elif self.state == State.PAUSED:
-            # This shouldn't be possible
-
-            embed = utils.contrived_error_embed(
-                title='Unexpected Error',
-                text=f"Can't \"{self.button_start_stop.label}\" the timelapse "
-                     f"when it's paused. Click \"Resume\" to start it."
-            )
-            interaction.followup.send(embed=embed, ephemeral=True)
+            # This is only possible if the end time is None, in which case the
+            # user is just stopping the timelapse
+            if self.end_time is None:
+                self.state = State.FINISHED
+            else:
+                embed = utils.contrived_error_embed(
+                    title='Unexpected Error',
+                    text=f"Can't \"{self.button_start_stop.label}\" the "
+                         f"timelapse when it's paused. Click \"Resume\" to "
+                         f"restart it."
+                )
+                await interaction.followup.send(embed=embed, ephemeral=True)
 
         elif self.state == State.FORCE_RUNNING:
             # The user wants to stop the manual force run override
@@ -533,7 +545,7 @@ class TimelapseControlPanel(utils.BaseView):
                      f"currently {State.READY.name} to begin. Click start to "
                      f"run it."
             )
-            interaction.followup.send(embed=embed, ephemeral=True)
+            await interaction.followup.send(embed=embed, ephemeral=True)
 
         # In FINISHED state, this button should have been disabled
         elif self.state == State.FINISHED:
@@ -542,7 +554,7 @@ class TimelapseControlPanel(utils.BaseView):
                 text=f"The timelapse is already {State.FINISHED.name}, so you "
                      f"can't {self.button_pause_resume.label.lower()} it."
             )
-            interaction.followup.send(embed=embed, ephemeral=True)
+            await interaction.followup.send(embed=embed, ephemeral=True)
 
         # If FORCE_RUNNING after it *ended*, you can only stop it, not pause
         elif self.state == State.FORCE_RUNNING and \
@@ -554,7 +566,7 @@ class TimelapseControlPanel(utils.BaseView):
                      "finishing. You can stop it, but you can't "
                      f"{self.button_pause_resume.label.lower()} it."
             )
-            interaction.followup.send(embed=embed, ephemeral=True)
+            await interaction.followup.send(embed=embed, ephemeral=True)
 
         # When PAUSED, it can only be resumed
         elif self.state == State.PAUSED:
@@ -603,29 +615,29 @@ class TimelapseControlPanel(utils.BaseView):
         await self.save_timelapse_to_db()
 
         if self.executor is None:
-            # If there's no executor, try to create one
+            # Make sure there aren't any events in the queue for this timelapse
+            await self.coordinator.remove_events_from_queue(  # noqa
+                self.timelapse.id
+            )
+
+            # There's no executor so, try to create one
             # (PyCharm linter just REFUSES to understand Coordinator type)
-            result = await self.coordinator.create_executor(  # noqa
+            self.executor, r = await self.coordinator.create_executor(  # noqa
                 deepcopy(self.timelapse)
             )
-            _log.info(("Created" if result else "Didn't create") +
+
+            _log.info(f"{'Created' if r else 'Updated while trying to create'}"
                       f" executor for timelapse '{self.name}'")
+            if r:
+                self.state = self.executor.timelapse.state
         else:
             # Update the existing executor
-            result = await self.coordinator.update_executor(  # noqa
-                self.executor, deepcopy(self.timelapse)
-            )
-            if result == True:  # noqa
+            if await self.coordinator.update_executor(  # noqa
+                    self.executor, deepcopy(self.timelapse)):
                 _log.info(f"Updated executor for timelapse '{self.name}'")
-            elif result == False:  # noqa
-                _log.info(f"Removed executor for timelapse '{self.name}'")
+                self.state = self.executor.timelapse.state
             else:
                 _log.info(f"Executor for timelapse '{self.name}' not changed")
-
-        # Get the new executor in case it was created, removed, or replaced
-        self.executor = self.coordinator.get_executor(  # noqa
-            self.timelapse_id
-        )
 
     async def clicked_info(self, interaction: Interaction) -> None:
         """
@@ -670,8 +682,19 @@ class TimelapseControlPanel(utils.BaseView):
             _: The interaction that triggered this UI event.
         """
 
+        # Delete the message first, in case any errors arise
         await self.delete_original_message()
+
+        # Stop the view, so it doesn't listen for non-existent buttons
         self.stop()
+
+        # Remove listeners
+        if self.executor is not None:
+            await self.executor.remove_listener(self.on_executor_state_change)
+            await self.coordinator.remove_listener(  # noqa
+                self.on_executor_add_remove,
+                self.id
+            )
 
     async def clicked_preview(self, interaction: Interaction) -> None:
         """
@@ -774,3 +797,49 @@ class TimelapseControlPanel(utils.BaseView):
 
         # Refresh the display
         await self.refresh_display()
+
+    async def on_executor_add_remove(self,
+                                     executor: TimelapseExecutor | int) -> None:
+        """
+        This is a listener function that's called whenever the coordinator adds
+        or removes an executor on the timelapse in this control panel.
+
+        Args:
+            executor: The executor that was added or removed. If added, this is
+            an executor. If removed, this is the timelapse id.
+        """
+
+        if isinstance(executor, TimelapseExecutor):
+            if self.executor is not None:
+                # If there's already an executor, remove any listener attached
+                # to it. This probably shouldn't happen
+                _log.warning(
+                    'Unexpected: executor listener was called with a new '
+                    'timelapse executor when there already is one: replacing '
+                    '{self.executor} with {executor}'
+                )
+                await self.executor.remove_listener(  # noqa
+                    self.on_executor_state_change
+                )
+
+            # Save the new executor
+            self.executor = executor
+
+            # Register a listener on this new executor
+            await self.executor.register_listener(  # noqa
+                self.on_executor_state_change
+            )
+
+        # The executor was removed. Set it back to None, as it's no longer used
+        elif isinstance(executor, int):
+            _log.debug(f'The executor for id {executor} was removed')
+            self.executor = None
+            # Note that the listener is not removed here, as it likely hasn't
+            # run yet. The executor is being deleted anyway (so it should be
+            # garbage collected soon assuming references were properly removed,
+            # meaning this shouldn't be an issue).
+
+        # Should be unreachable
+        else:
+            raise ValueError('Unreachable: listener received unexpected '
+                             'executor type {type(executor)}: {executor}')

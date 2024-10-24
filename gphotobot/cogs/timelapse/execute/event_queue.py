@@ -72,8 +72,10 @@ class ExecutorEventQueue:
         try:
             # Wait until it's time for this task
             seconds = event.time_until()
-            _log.debug(f"Waiting {utils.format_duration(seconds)} to run "
-                       f"the event {event}")
+            _log.debug(
+                f"Waiting {utils.format_duration(seconds, spaces=False)} "
+                f"to run the event {event}"
+            )
             await asyncio.sleep(seconds)
 
             # Get the lock to avoid processing an event while in the middle of
@@ -96,9 +98,11 @@ class ExecutorEventQueue:
                 else:
                     # Send the event to the callback function to process it
                     n = len(self._queue)
-                    _log.debug(f"Running event {event}: there "
-                               f"{'is' if n == 1 else 'are'} now {n} "
-                               f"event{'' if n == 1 else 's'} left in the queue")
+                    _log.debug(
+                        f"Running event {event}: there "
+                        f"{'is' if n == 1 else 'are'} now {n} "
+                        f"event{'' if n == 1 else 's'} left in the queue"
+                    )
                     asyncio.create_task(self._callback(event))
 
         except asyncio.CancelledError:

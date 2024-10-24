@@ -497,10 +497,12 @@ class TimelapseCreator(utils.BaseView):
 
         # Change in the timelapse record too, if there is one
         if self._timelapse is not None:
-            self._timelapse.schedule_entries = (
+            entries = (
                 [] if new_schedule is None
                 else new_schedule.to_db(self._timelapse.id, force_copy=True)
             )
+            self._timelapse.schedule_entries = entries
+            self._timelapse.has_schedule = len(entries) > 0
 
         # Update the button text
         if new_schedule is None:
@@ -616,9 +618,13 @@ class TimelapseCreator(utils.BaseView):
 
         _log.info(f"Created a new timelapse: '{self.name}'")
 
+        # Create an executor in case it should start automatically. The result
+        # value is irrelevant, though, as no matter what happens with an
+        # executor, the timelapse was created
         from .execute import TIMELAPSE_COORDINATOR
         await TIMELAPSE_COORDINATOR.create_executor(tl)
 
+        # Send a confirmation dialog, so the user knows it worked
         await utils.ConfirmationDialog(
             parent=self,
             title='Success!',
