@@ -1,6 +1,5 @@
 import asyncio
 from datetime import datetime
-from functools import partial
 import logging
 from typing import Optional
 
@@ -135,10 +134,7 @@ class Coordinator(utils.TaskLoop,
         """
 
         # Create an executor, and get an event to set its current state
-        executor = TimelapseExecutor(
-            tl,
-            partial(self.remove_executor, cancel=False)
-        )
+        executor = TimelapseExecutor(tl, self.remove_executor)
         event = executor.determine_current_event(datetime.now())
 
         # If the event state is PAUSED, READY, or FINISHED, don't even bother
@@ -226,26 +222,19 @@ class Coordinator(utils.TaskLoop,
             async with self.queue_lock:
                 await self.queue.push(next_event)
 
-    async def remove_executor(self,
-                              executor: TimelapseExecutor,
-                              cancel: bool = True) -> None:
+    async def remove_executor(self, executor: TimelapseExecutor) -> None:
         """
-        Remove a timelapse executor and all upcoming events associated with that
-        timelapse.
-
-        This first removes the events and then the executor, in that order.
+        First, cancel the executor. Then, remove all events pertaining to it
+        from the event queue. Finally, remove the reference to the executor
+        object from the `self.executors` dict.
 
         Args:
             executor: The executor to remove.
-            cancel: Whether to cancel the executor. (Only set this to False when
-            the executor is in the process of stopping). Defaults to True.
         """
 
         async with self.queue_lock:
+            executor.cancel()
             await self.queue.remove_timelapse(executor.id)
-            if cancel:
-                _log.info('Calling cancel in remove_executor()')
-                executor.cancel()
             self.executors.pop(executor.id, None)  # Silently remove
 
     def cancel(self) -> None:

@@ -52,7 +52,7 @@ class TimelapseExecutor(utils.TaskLoop):
         # References to asyncio tasks created when/if this is cancelled
         self._t1 = self._t2 = None
 
-        _log.info(f"Created new timelapse executor: {self}")
+        _log.info(f"Initialized a new executor instance: {self}")
 
     @property
     def id(self) -> int:
@@ -83,23 +83,11 @@ class TimelapseExecutor(utils.TaskLoop):
 
     def cancel(self) -> None:
         super().cancel()
-
-        # Only run the stop callback if it's being totally cancelled. If it's
-        # just WAITING, stick around for the next event
-        if self.timelapse.state != State.WAITING:
-            _log.info(f"Cancelling executor {self}")
-            self.cancelling = True
-            self._t1 = asyncio.create_task(self.stop_callback(self))
+        _log.info(f"Cancelling executor task loop {self}")
 
     def stop(self) -> None:
         super().stop()
-
-        # Only run the stop callback if it's being totally stopped. If it's
-        # just WAITING, stick around for the next event
-        if self.timelapse.state != State.WAITING:
-            _log.info(f"Stopping executor {self}")
-            self._t1 = asyncio.create_task(self.stop_callback(self))
-            self._t2 = asyncio.create_task(self.update_db())
+        _log.info(f"Stopping executor task loop {self}")
 
     async def run(self):
         self.timelapse.frames += 1
@@ -372,10 +360,11 @@ class TimelapseExecutor(utils.TaskLoop):
             await self._run_state_listeners(event.state)
 
         if event.state in (State.READY, State.PAUSED, State.FINISHED):
-            # The timelapse stopped; no need to update any settings. Cancel
-            # this executor, which will delete it from the coordinator and
-            # prevent any more events from running
-            self.cancel()
+            # The timelapse stopped; no need to update any settings. Run the
+            # callback to cancel this and delete it from the coordinator, and
+            # then save any last changes to the database.
+            await self.stop_callback(self)
+            await self.update_db()
             return
 
         # Update the interval, if it was modified

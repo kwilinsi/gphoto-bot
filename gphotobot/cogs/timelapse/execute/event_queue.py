@@ -3,6 +3,7 @@ from collections.abc import Awaitable, Callable
 import heapq
 import logging
 
+from gphotobot import utils
 from .executor_event import ExecutorEvent
 
 _log = logging.getLogger(__name__)
@@ -34,22 +35,11 @@ class ExecutorEventQueue:
         """
 
         # Cancel previous task, if there is one
-        if self._task is not None:
+        if self._task is not None and not self._task.done():
             self._task.cancel()
 
         # Start the new task
         self._task = asyncio.create_task(self._run())
-
-        # When that task finishes, auto-start a new one using a callback IF
-        # there are entries still in the queue
-        async def callback():
-            async with self._lock:
-                if len(self._queue) > 0:
-                    self.create_task()
-
-        self._task.add_done_callback(
-            lambda _: asyncio.create_task(callback())
-        )
 
     async def _run(self) -> None:
         """
@@ -81,7 +71,10 @@ class ExecutorEventQueue:
 
         try:
             # Wait until it's time for this task
-            await asyncio.sleep(event.time_until())
+            seconds = event.time_until()
+            _log.debug(f"Waiting {utils.format_duration(seconds)} to run "
+                       f"the event {event}")
+            await asyncio.sleep(seconds)
 
             # Get the lock to avoid processing an event while in the middle of
             # a delete or push operation. Also so we can pop.
@@ -100,17 +93,21 @@ class ExecutorEventQueue:
                 if e != event:
                     _log.debug(f'While waiting to process {event}, it was '
                                f'displaced by {e}')
-                    return
-
-                # Send the event to the callback function to process it
-                _log.debug(f'Running callback with event {event}: '
-                           f'{len(self._queue)} event(s) left in queue')
-                asyncio.create_task(self._callback(event))
+                else:
+                    # Send the event to the callback function to process it
+                    n = len(self._queue)
+                    _log.debug(f"Running event {event}: there "
+                               f"{'is' if n == 1 else 'are'} now {n} "
+                               f"event{'' if n == 1 else 's'} left in the queue")
+                    asyncio.create_task(self._callback(event))
 
         except asyncio.CancelledError:
-            _log.debug(f'Task waiting for event {event} was displaced by '
-                       f'another event and cancelled')
-            return
+            _log.debug('Cancelled event queue task')
+            raise
+
+        # Restart the task
+        self._task = None
+        self.create_task()
 
     async def cancel(self) -> None:
         """
@@ -119,6 +116,7 @@ class ExecutorEventQueue:
         """
 
         async with self._lock:
+            _log.info('Cancelling event queue task and clearing the queue')
             if self._task is not None:
                 self._task.cancel()
             self._queue.clear()
@@ -141,8 +139,10 @@ class ExecutorEventQueue:
                 # Start a task to run the heap invariant executor event
                 self.create_task()
 
-            _log.debug(f"Added event to queue {event}: there are now "
-                       f"{len(self._queue)} event(s)")
+            n = len(self._queue)
+            _log.debug(f"Added event {event}: there "
+                       f"{'is' if n == 1 else 'are'} now "
+                       f"{n} event{'' if n == 1 else 's'} in the queue")
 
     async def remove_timelapse(self, timelapse_id: int):
         """
@@ -153,9 +153,20 @@ class ExecutorEventQueue:
         """
 
         async with self._lock:
+            n1 = len(self._queue)
             self._queue = [event for event in self._queue
                            if event.timelapse_id != timelapse_id]
             heapq.heapify(self._queue)
+
+            # Log a message
+            n2 = len(self._queue)
+            diff = n1 - n2
+            _log.debug(
+                f"Removed {diff} event{'' if diff == 1 else 's'} from "
+                f"queue for timelapse with id {timelapse_id}: there "
+                f"{'is' if n2 == 1 else 'are'} now {n2} "
+                f"event{'' if n2 == 1 else 's'} left in the queue"
+            )
 
     async def has_any(self, timelapse_id: int) -> bool:
         """

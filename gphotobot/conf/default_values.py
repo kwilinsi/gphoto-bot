@@ -204,6 +204,14 @@ EMOJI_DONE_CHECK = dc.DefaultConfigEntry(
     default=None
 )
 
+# The emoji for use in a Save button
+# Recommended custom emoji: https://fonts.google.com/icons?selected=Material+Symbols+Outlined:save:FILL@0;wght@300;GRAD@200;opsz@24&icon.query=save&icon.size=24&icon.color=%23edeff2
+EMOJI_SAVE = dc.DefaultConfigEntry(
+    section='emoji',
+    cast_func=dc.to_nullable_string,
+    default=None
+)
+
 # The emoji for use in an Info button
 # Recommended custom emoji: https://fonts.google.com/icons?selected=Material+Symbols+Outlined:info:FILL@0;wght@300;GRAD@200;opsz@24&icon.query=info&icon.size=24&icon.color=%23edeff2
 EMOJI_INFO = dc.DefaultConfigEntry(

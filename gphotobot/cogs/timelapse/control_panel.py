@@ -13,6 +13,7 @@ from gphotobot.sql import async_session_maker, State, Timelapse
 from . import timelapse_utils
 from .execute import Coordinator, TimelapseExecutor
 from .schedule.schedule import Schedule
+from .timelapse_creator import TimelapseCreator
 
 _log = logging.getLogger(__name__)
 
@@ -502,7 +503,7 @@ class TimelapseControlPanel(utils.BaseView):
         # If the state changed, notify the timelapse coordinator, and update
         # the database record
         if self.state != initial_state:
-            await self.on_state_update()
+            await self.on_update()
 
         # Update the start/end and pause/resume buttons
         self.update_start_pause_buttons()
@@ -579,7 +580,7 @@ class TimelapseControlPanel(utils.BaseView):
         # If the state changed, notify the timelapse coordinator, and update
         # the database record
         if self.state != initial_state:
-            await self.on_state_update()
+            await self.on_update()
 
         # Update the start/end and pause/resume buttons
         self.update_start_pause_buttons()
@@ -587,12 +588,12 @@ class TimelapseControlPanel(utils.BaseView):
         # Then re-render the display
         await self.refresh_display()
 
-    async def on_state_update(self) -> None:
+    async def on_update(self) -> None:
         """
         This is called by clicked_start_stop() and clicked_pause_resume() when
-        the user changes the state of the timelapse.
+        the user edits the timelapse.
 
-        This updates the associated executor if one exists, and attempts to
+        This updates the associated executor if one exists and attempts to
         create a new executor if it doesn't exist. This also updates the
         timelapse record in the database.
         """
@@ -600,17 +601,27 @@ class TimelapseControlPanel(utils.BaseView):
         if self.executor is None:
             # If there's no executor, try to create one
             # (PyCharm linter just REFUSES to understand Coordinator type)
-            await self.coordinator.create_executor(  # noqa
-                copy(self.timelapse))
+            result = await self.coordinator.create_executor(  # noqa
+                copy(self.timelapse)
+            )
+            _log.info(("Created" if result else "Didn't create") +
+                      f"executor for timelapse '{self.name}'")
         else:
             # Update the existing executor
-            await self.coordinator.update_executor(  # noqa
+            result = await self.coordinator.update_executor(  # noqa
                 self.executor, copy(self.timelapse)
             )
+            if result == True:  # noqa
+                _log.info(f"Updated executor for timelapse '{self.name}'")
+            elif result == False:  # noqa
+                _log.info(f"Removed executor for timelapse '{self.name}'")
+            else:
+                _log.info(f"Executor for timelapse '{self.name}' not changed")
 
         # Get the new executor in case it was created, removed, or replaced
         self.executor = self.coordinator.get_executor(  # noqa
-            self.timelapse_id)
+            self.timelapse_id
+        )
 
         # Update db record
         await self.save_timelapse_to_db()
@@ -625,15 +636,20 @@ class TimelapseControlPanel(utils.BaseView):
 
         ...
 
-    async def clicked_edit(self, interaction: Interaction) -> None:
+    async def clicked_edit(self, _: Interaction) -> None:
         """
         This callback function runs when the user clicks the edit button.
 
         Args:
-            interaction: The interaction that triggered this UI event.
+            _: The interaction that triggered this UI event.
         """
 
-        ...
+        await TimelapseCreator.edit_existing(
+            parent=self,
+            timelapse=copy(self.timelapse),
+            callback=self.on_timelapse_edited,
+            callback_cancel=self.refresh_display
+        )
 
     async def clicked_delete(self, interaction: Interaction) -> None:
         """
@@ -716,7 +732,7 @@ class TimelapseControlPanel(utils.BaseView):
                 self.timelapse.frames = self.frames
 
             # Add to session; it'll commit while exiting the context manager
-            session.add(self.timelapse)
+            await session.merge(self.timelapse)
 
     async def on_executor_state_change(self, state: State) -> None:
         """
@@ -729,4 +745,17 @@ class TimelapseControlPanel(utils.BaseView):
 
         self.state = state
         self.update_start_pause_buttons()
+        await self.refresh_display()
+
+    async def on_timelapse_edited(self, timelapse: Timelapse) -> None:
+        """
+        This callback function runs when the user finishes editing the
+        timelapse. It may or may not have changed in the process.
+
+        Args:
+            timelapse: The edited timelapse.
+        """
+
+        self.timelapse = timelapse
+        await self.on_update()
         await self.refresh_display()

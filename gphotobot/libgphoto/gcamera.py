@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gphotobot import const, settings, utils, TMP_DATA_DIR
-from gphotobot.sql import async_session_maker, Camera as DBCameras
+from gphotobot.sql import async_session_maker, Camera as DBCamera
 from .rotation import Rotation
 from . import gutils
 
@@ -304,13 +304,20 @@ class GCamera:
             self._rotate_preview = rotation
             self.synced_with_database = False
 
-    async def sync_with_database(self, session: AsyncSession):
+    async def sync_with_database(self, session: AsyncSession) -> DBCamera:
         """
         Sync this camera with the Cameras table in the database. This will load
         the serial number if it's not loaded already.
 
         Args:
-            session (AsyncSession): The database session.
+            session: The async database session.
+
+        Returns:
+            The database record for this camera.
+
+        Raises:
+            ValueError: If for some reason there are multiple matches for this
+            camera, and it's not clear which one is for this camera.
         """
 
         serial = await self.get_serial_number()
@@ -320,12 +327,14 @@ class GCamera:
         _log.debug(f"Syncing '{self}' with database (serial='{serial}')")
 
         # Look for cameras with the same serial number
-        stmt = select(DBCameras).where(DBCameras.serial_number == serial)
+        stmt = select(DBCamera).where(DBCamera.serial_number == serial)
         result = (await session.scalars(stmt)).all()
+
+        #################### CREATE NEW RECORD ####################
 
         # If no results, add this camera to the database
         if len(result) == 0:
-            db_camera = DBCameras(
+            db_camera: DBCamera = DBCamera(
                 name=self.name,
                 address=self.addr,
                 usb_bus=bus,
@@ -341,7 +350,11 @@ class GCamera:
             self.synced_with_database = True
 
             _log.info(f"Adding new camera '{self}' to database")
-            return
+
+            # Return new db record
+            return db_camera
+
+        #################### GET EXISTING RECORD ####################
 
         # Check for multiple results (unexpected). This could maybe happen
         # if they have different names (i.e. different companies)?
@@ -351,31 +364,33 @@ class GCamera:
             if n == 1:
                 result = result_filtered
             elif n > 1:
-                _log.warning(f"Found {n} cameras in db with serial number "
-                             f"'{serial}' and name '{self.name}'. "
-                             f"Failed to sync")
-                return
+                msg = (f"Found {n} cameras in db with serial number '{serial}' "
+                       f"and name '{self.name}'. Failed to sync")
+                _log.warning(msg)
+                raise ValueError(msg)
             else:
-                _log.warning(f"Found {len(result)} cameras in db with serial "
-                             f"number '{serial}', but none are named "
-                             f"'{self.name}'. Failed to sync")
-                return
+                msg = (f"Couldn't find any cameras in the db with serial "
+                       f"number '{serial}'. Failed to sync")
+                _log.warning(msg)
+                raise ValueError(msg)
 
         # Sync any changes with the matching camera
-        if len(result) == 1:
-            db_camera = result[0]
-            self._database_id = db_camera.id
-            db_camera.name = self.name
-            db_camera.address = self.addr
-            db_camera.usb_bus = bus
-            db_camera.usb_device = device
-            if self._rotate_preview is None:
-                self._rotate_preview = Rotation(db_camera.rotate_preview)
-            else:
-                db_camera.rotate_preview = self._rotate_preview.value
+        db_camera: DBCamera = result[0]
+        self._database_id = db_camera.id
+        db_camera.name = self.name
+        db_camera.address = self.addr
+        db_camera.usb_bus = bus
+        db_camera.usb_device = device
+        if self._rotate_preview is None:
+            self._rotate_preview = Rotation(db_camera.rotate_preview)
+        else:
+            db_camera.rotate_preview = self._rotate_preview.value
 
         # The camera is now synced
         self.synced_with_database = True
+
+        # Return matching db record
+        return db_camera
 
     async def get_db_id(self) -> int:
         """

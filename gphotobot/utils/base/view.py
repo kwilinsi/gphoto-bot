@@ -8,7 +8,7 @@ import inspect
 import logging
 from typing import Awaitable, Callable, Iterable, Optional
 
-from discord import (ButtonStyle, Embed, Interaction, Member,
+from discord import (ButtonStyle, Embed, HTTPException, Interaction, Member,
                      Message, SelectOption, ui, User)
 from discord.ext.commands import Bot
 
@@ -140,18 +140,38 @@ class BaseView(ui.View, ABC):
 
         if self._message is not None:
             # If there's a cached message object, use that
-            await self._message.edit(*args, **kwargs)
+            try:
+                await self._message.edit(*args, **kwargs)
+            except HTTPException as e:
+                _log.error(f'Failed to edit _message {self._message} in '
+                           f'{self.__class__.__name__}: {e}')
+
         elif isinstance(self.parent, Interaction) and \
                 self.parent.created_at + timedelta(minutes=14, seconds=50) > \
                 datetime.now(timezone.utc):
             # If the parent is an interaction that won't expire within the next
             # 10 seconds, use it
+
             if self.parent.response.is_done():
                 # If we already responded, we can edit the message
-                await self.parent.edit_original_response(*args, **kwargs)
+                try:
+                    await self.parent.edit_original_response(*args, **kwargs)
+                except HTTPException as e:
+                    _log.error(
+                        f'Failed to edit_original_response on {self.parent} '
+                        f'in {self.__class__.__name__}: {e}'
+                    )
+
             else:
                 # Otherwise, send an initial response
-                await self.parent.response.send_message(*args, **kwargs)
+                try:
+                    await self.parent.response.send_message(*args, **kwargs)
+                except HTTPException as e:
+                    _log.error(
+                        f'Failed to send initial response on {self.parent} '
+                        f'in {self.__class__.__name__}: {e}'
+                    )
+
         else:
             raise ValueError("Can't edit the original message")
 

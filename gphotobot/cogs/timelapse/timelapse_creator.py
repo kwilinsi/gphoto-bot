@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta
 import logging
 from pathlib import Path
@@ -30,8 +31,13 @@ class TimelapseCreator(utils.BaseView):
     def __init__(self,
                  parent: Interaction[GphotoBot] | utils.BaseView | Message,
                  name: str,
-                 camera: Optional[GCamera],
-                 directory: Optional[Path]):
+                 camera: GCamera | None,
+                 directory: Path | None,
+                 callback: Optional[Callable[[Timelapse],
+                 Awaitable[None]]] = None,
+                 callback_cancel: Optional[Callable[...,
+                 Awaitable[None]]] = None,
+                 timelapse: Timelapse | None = None) -> None:
         """
         Create a new view for helping the user make a timelapse.
 
@@ -41,28 +47,76 @@ class TimelapseCreator(utils.BaseView):
             name: The already-validated name of the timelapse.
             camera: The camera to use for the timelapse.
             directory: The directory for storing timelapse photos.
+            callback: An async function to call when the timelapse is created.
+            Defaults to None.
+            callback_cancel: An async function to call when this is cancelled.
+            Defaults to None.
+            timelapse: An existing database timelapse record to edit. Defaults
+            to None.
         """
 
         super().__init__(
             parent=parent,
             permission_error_msg='Type `/timelapse create` '
-                                 'to make your own timelapse.'
+                                 'to make your own timelapse.',
+            callback=callback,
+            callback_cancel=callback_cancel
         )
 
         self._name = name
-        self._camera: Optional[GCamera] = camera
-        self._directory: Optional[Path] = directory
+        self._camera: GCamera | None = camera
+        self._directory: Path | None = directory
 
         # Default interval
-        self._interval: Optional[timedelta] = None
+        self._interval: timedelta | None = None
 
         # Start runtime conditions
-        self._start_time: Optional[datetime] = None
-        self._end_time: Optional[datetime] = None
-        self._total_frames: Optional[int] = None
+        self._start_time: datetime | None = None
+        self._end_time: datetime | None = None
+        self._total_frames: int | None = None
 
         # A timelapse schedule
-        self._schedule: Optional[Schedule] = None
+        self._schedule: Schedule | None = None
+
+        # Store the existing timelapse record, if one was given
+        self._timelapse: Timelapse | None = timelapse
+        if timelapse is not None:
+            self._interval = timedelta(seconds=timelapse.capture_interval)
+            self._start_time = timelapse.start_time
+            self._end_time = timelapse.end_time
+            self._total_frames = timelapse.total_frames
+            s = Schedule.from_db(timelapse.schedule_entries)
+            if len(s) > 0:
+                self._schedule = s
+
+        # Create the Save/Create button
+        self.button_save_create = self.create_button(
+            label='Create' if timelapse is None else 'Save',
+            style=ButtonStyle.success,
+            emoji=settings.EMOJI_DONE_CHECK if timelapse is None
+            else settings.EMOJI_SAVE,
+            callback=self.select_button_save_create,
+            row=0
+        )
+
+        # Create the Info button
+        self.button_info = self.create_button(
+            label='Info',
+            style=ButtonStyle.primary,
+            emoji=settings.EMOJI_INFO,
+            callback=self.select_button_info,
+            row=0,
+            auto_defer=False
+        )
+
+        # Create the Create/Save button
+        self.button_cancel = self.create_button(
+            label='Cancel',
+            style=ButtonStyle.danger,
+            emoji=settings.EMOJI_CANCEL,
+            callback=self.select_button_cancel,
+            row=0
+        )
 
         # Create the button for changing the directory
         self.button_directory = self.create_button(
@@ -85,7 +139,7 @@ class TimelapseCreator(utils.BaseView):
 
         # Create the interval button
         self.button_interval = self.create_button(
-            label='Set Interval',
+            label=('Set' if self.interval is None else 'Change') + ' Interval',
             style=ButtonStyle.secondary,
             emoji=settings.EMOJI_TIME_INTERVAL,
             callback=self.select_button_interval,
@@ -115,7 +169,9 @@ class TimelapseCreator(utils.BaseView):
             row=3
         )
 
-        _log.info(f"Starting a new timelapse creator called '{name}'")
+        _log.info(f"Opening a new "
+                  f"{'creator' if self._timelapse is None else 'editor'} "
+                  f"for the timelapse '{name}'")
 
     @classmethod
     async def create_new(
@@ -153,6 +209,36 @@ class TimelapseCreator(utils.BaseView):
 
         # Build and send the timelapse creator view
         await cls(parent, name, camera, directory).refresh_display()
+
+    @classmethod
+    async def edit_existing(
+            cls,
+            parent: Interaction[GphotoBot] | utils.BaseView | Message,
+            timelapse: Timelapse,
+            callback: Callable[[Timelapse], Awaitable[None]],
+            callback_cancel: Callable[[...], Awaitable[None]],
+    ) -> None:
+        """
+        Create a view for editing an existing timelapse.
+
+        Args:
+            parent: The interaction, view, or message to use when refreshing
+            the display.
+            timelapse: The timelapse to edit.
+            callback: The async function to run when the user clicks "Save".
+            callback_cancel: The async function to run if the user clicks
+            "Cancel".
+        """
+
+        await cls(
+            parent=parent,
+            name=timelapse.name,
+            camera=await gmanager.get_camera(timelapse.camera),
+            directory=Path(timelapse.directory),
+            callback=callback,
+            callback_cancel=callback_cancel,
+            timelapse=timelapse
+        ).refresh_display()
 
     @property
     def name(self) -> str:
@@ -203,14 +289,19 @@ class TimelapseCreator(utils.BaseView):
         # Change the name
         self._name = name
 
+        # Change in the timelapse record too, if there is one
+        if self._timelapse is not None:
+            self._timelapse.name = name
+
         # Refresh the display
         await self.refresh_display()
 
     @property
-    def directory(self) -> Optional[Path]:
+    def directory(self) -> Path | None:
         return self._directory
 
-    async def set_directory(self, directory: Optional[Path],
+    async def set_directory(self,
+                            directory: Path | None,
                             refresh: bool = True) -> None:
         """
         Change the directory. If the directory is currently unset, this has the
@@ -228,6 +319,10 @@ class TimelapseCreator(utils.BaseView):
         # Do nothing if the input is None
         if directory is None:
             return
+
+        # Change in the timelapse record, if there is one
+        if self._timelapse is not None:
+            self._timelapse.directory = str(directory)
 
         # Update the directory
         if self.directory is None:
@@ -256,31 +351,39 @@ class TimelapseCreator(utils.BaseView):
             interval: The new interval.
         """
 
+        assert interval is not None  # Just making sure
+
         if self.interval is None:
             utils.get_button(self, 'Set Interval').label = \
                 'Change Interval'
         elif self.interval == interval:
             return
 
+        # Change the interval
         self._interval = interval
+
+        # Change in the timelapse record too, if there is one
+        if self._timelapse is not None:
+            self._timelapse.capture_interval = interval.total_seconds()
+
         await self.refresh_display()
 
     @property
-    def start_time(self) -> Optional[datetime]:
+    def start_time(self) -> datetime | None:
         return self._start_time
 
     @property
-    def end_time(self) -> Optional[datetime]:
+    def end_time(self) -> datetime | None:
         return self._end_time
 
     @property
-    def total_frames(self) -> Optional[int]:
+    def total_frames(self) -> int | None:
         return self._total_frames
 
     async def set_runtime(self,
-                          start_time: Optional[datetime],
-                          end_time: Optional[datetime],
-                          total_frames: Optional[int]) -> None:
+                          start_time: datetime | None,
+                          end_time: datetime | None,
+                          total_frames: int | None) -> None:
         """
         Change the start/end time and/or the total frames. This has the side
         effect of possibly changing the label and emoji on the associated
@@ -301,14 +404,25 @@ class TimelapseCreator(utils.BaseView):
             self.button_runtime.label = 'Set Runtime'
             self.button_runtime.emoji = settings.EMOJI_SET_RUNTIME
 
-        # Update and display the configuration if it changed
-        if total_frames != self.total_frames or \
-                start_time != self.start_time or \
-                end_time != self.end_time:
-            self._start_time = start_time
-            self._end_time = end_time
-            self._total_frames = total_frames
-            await self.refresh_display()
+        # If nothing changed, exit
+        if total_frames == self.total_frames and \
+                start_time == self.start_time and \
+                end_time == self.end_time:
+            return
+
+        # Update the values
+        self._start_time = start_time
+        self._end_time = end_time
+        self._total_frames = total_frames
+
+        # Change in the timelapse record too, if there is one
+        if self._timelapse is not None:
+            self._timelapse.start_time = start_time
+            self._timelapse.end_time = end_time
+            self._timelapse.total_frames = total_frames
+
+        # Refresh the display
+        await self.refresh_display()
 
     @property
     def camera(self) -> Optional[GCamera]:
@@ -322,8 +436,22 @@ class TimelapseCreator(utils.BaseView):
             camera: The new camera.
         """
 
-        self._camera = camera
+        assert camera is not None  # Just in case
+
+        # Change the button, in case the camera was previously None
         self.button_camera = 'Change Camera'
+
+        # Update the value
+        self._camera = camera
+
+        # Change in the timelapse record too, if there is one
+        if self._timelapse is not None:
+            async with (async_session_maker(expire_on_commit=False) as session,
+                        session.begin()):
+                self._timelapse.camera = \
+                    await camera.sync_with_database(session)
+
+        # Update the display
         await self.refresh_display()
 
     @property
@@ -336,6 +464,50 @@ class TimelapseCreator(utils.BaseView):
         """
 
         return self._schedule
+
+    @property
+    def owner_mention(self) -> str:
+        return (self.user.mention if self._timelapse is None
+                else f'<@!{self._timelapse.user_id}>')
+
+    async def set_schedule(self,
+                           start_time: datetime | None,
+                           end_time: datetime | None,
+                           total_frames: int | None,
+                           new_schedule: Schedule | None) -> None:
+        """
+        Set the runtime and timelapse schedule. It is assumed that at least
+        something is actually changed by calling this (as opposed to, say
+        change_name(), which could receive the existing name).
+
+        Note that it is possible for the schedule to be None, meaning that it's
+        either removed or the other parameters have been changed instead.
+
+        After updating the schedule, this refreshes the display.
+
+        Args:
+            start_time: The (possibly new) runtime start.
+            end_time: The (possibly new) runtime end.
+            total_frames: The (possibly new) total frame threshold.
+            new_schedule: The (possibly new) timelapse schedule.
+        """
+
+        await self.set_runtime(start_time, end_time, total_frames)
+        self._schedule = new_schedule
+
+        # Change in the timelapse record too, if there is one
+        if self._timelapse is not None:
+            self._timelapse.schedule_entries = \
+                [] if new_schedule is None else new_schedule.to_db()
+
+        # Update the button text
+        if new_schedule is None:
+            self.button_schedule.label = 'Create a Schedule'
+        else:
+            self.button_schedule.label = 'Edit the Schedule'
+
+        # Update the display
+        await self.refresh_display()
 
     async def build_embed(self, *args, **kwargs) -> Embed:
         """
@@ -354,9 +526,10 @@ class TimelapseCreator(utils.BaseView):
 
         # Create the base embed
         embed = utils.default_embed(
-            title='Create a Timelapse',
+            title='Create a Timelapse' if self._timelapse is None
+            else 'Edit the Timelapse',
             description=f"**Name:** {self.safe_name()}\n"
-                        f"**Creator:** {self.user.mention}\n"
+                        f"**Owner:** {self.owner_mention}\n"
                         f"**Camera:** {camera}"
         )
 
@@ -398,21 +571,14 @@ class TimelapseCreator(utils.BaseView):
         # Return finished embed
         return embed
 
-    @ui.button(label='Create', style=ButtonStyle.success,
-               emoji=settings.EMOJI_DONE_CHECK, row=0)
-    async def select_button_create(self,
-                                   interaction: Interaction,
-                                   _: ui.Button) -> None:
+    async def select_button_save_create(self, interaction: Interaction) -> None:
         """
         Create this timelapse, and add it to the database. Switch to a new
         display for controlling the created timelapse.
 
         Args:
-            interaction: The interaction.
-            _: This button.
+            interaction: The interaction that triggered this UI event.
         """
-
-        await interaction.response.defer()
 
         # Validate the timelapse values to catch any problems
         try:
@@ -423,6 +589,15 @@ class TimelapseCreator(utils.BaseView):
                 text=e.msg
             ), ephemeral=True)
             return
+
+        # If there's a timelapse record, we're in edit mode. Send that to the
+        # callback function
+        if self._timelapse is not None:
+            await self.callback(self._timelapse)
+            _log.debug(f"Saved changes to timelapse: '{self.name}'")
+            return
+
+        # Otherwise, create a new timelapse record in the database
 
         try:
             async with (async_session_maker(expire_on_commit=False) as session,
@@ -505,18 +680,14 @@ class TimelapseCreator(utils.BaseView):
                     'photos.'
             )
 
-    @ui.button(label='Info', style=ButtonStyle.primary,
-               emoji=settings.EMOJI_INFO, row=0)
-    async def select_button_info(self,
-                                 interaction: Interaction,
-                                 _: ui.Button) -> None:
+    @staticmethod
+    async def select_button_info(interaction: Interaction) -> None:
         """
         Show the user information about timelapses, as if they had run the
         `/timelapse info` command.
 
         Args:
-            interaction: The interaction.
-            _: This button.
+            interaction: The interaction that triggered this UI event.
         """
 
         await interaction.response.send_message(
@@ -524,21 +695,21 @@ class TimelapseCreator(utils.BaseView):
             ephemeral=True
         )
 
-    @ui.button(label='Cancel', style=ButtonStyle.danger,
-               emoji=settings.EMOJI_CANCEL, row=0)
-    async def select_button_cancel(self,
-                                   interaction: Interaction,
-                                   _: ui.Button) -> None:
+    async def select_button_cancel(self, _: Interaction) -> None:
         """
         Cancel this timelapse creator.
 
         Args:
-            interaction: The interaction.
-            _: This button.
+            _: The interaction that triggered this UI event.
         """
 
-        await interaction.response.defer()
-        await self.delete_original_message()
+        if self.callback_cancel is not None:
+            # If there's a cancel callback, run that.
+            await self.callback_cancel()
+        else:
+            # Otherwise, delete the message
+            await self.delete_original_message()
+
         self.stop()
 
     @ui.button(label='Change Name', style=ButtonStyle.secondary,
@@ -663,36 +834,3 @@ class TimelapseCreator(utils.BaseView):
             self.set_schedule,  # primary callback
             self.refresh_display  # on cancel, just refresh the display
         ).refresh_display()
-
-    async def set_schedule(self,
-                           start_time: Optional[datetime],
-                           end_time: Optional[datetime],
-                           total_frames: Optional[int],
-                           new_schedule: Optional[Schedule]) -> None:
-        """
-        Set the runtime and timelapse schedule. It is assumed that at least
-        something is actually changed by calling this (as opposed to, say
-        change_name(), which could receive the existing name).
-
-        Note that it is possible for the schedule to be None, meaning that it's
-        either removed or the other parameters have been changed instead.
-
-        After updating the schedule, this refreshes the display.
-
-        Args:
-            start_time: The (possibly new) runtime start.
-            end_time: The (possibly new) runtime end.
-            total_frames: The (possibly new) total frame threshold.
-            new_schedule: The (possibly new) timelapse schedule.
-        """
-
-        await self.set_runtime(start_time, end_time, total_frames)
-        self._schedule = new_schedule
-
-        # Update the button text
-        if new_schedule is None:
-            self.button_schedule.label = 'Create a Schedule'
-        else:
-            self.button_schedule.label = 'Edit the Schedule'
-
-        await self.refresh_display()
