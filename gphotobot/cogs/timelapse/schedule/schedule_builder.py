@@ -177,10 +177,10 @@ class ScheduleBuilder(utils.BaseView, TracksChanges):
         )
 
         # Add a field for each schedule entry
-        for index, entry in enumerate(self.schedule.current):
+        for entry in self.schedule.current:
             header, body = entry.get_embed_field_strings()
             embed.add_field(
-                name=f'{index + 1}. {header}',
+                name=f'{entry.index + 1}. {header}',
                 value=body,
                 inline=False
             )

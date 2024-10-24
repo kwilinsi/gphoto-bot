@@ -10,7 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from gphotobot import settings, utils
 from gphotobot.libgphoto import GCamera, gutils
-from gphotobot.sql import async_session_maker, State, Timelapse, ScheduleEntry
+from gphotobot.sql import async_session_maker, State, Timelapse
 from . import timelapse_utils
 from .execute import Coordinator, TimelapseExecutor
 from .schedule.schedule import Schedule

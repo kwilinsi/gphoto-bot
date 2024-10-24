@@ -110,7 +110,7 @@ class ScheduleEntry(TracksChanges):
 
         # Update db entry if present
         if self.db_record is not None:
-            self.db_record.days = d
+            self.db_record.days = d.to_db()
 
     @property
     def start_time(self) -> time:

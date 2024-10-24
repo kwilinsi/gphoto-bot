@@ -135,6 +135,20 @@ class Schedule(list[ScheduleEntry], TracksChanges):
 
         super().append(entry)
 
+    def __delitem__(self, index):
+        super().__delitem__(index)
+
+        # Adjust the index of all items after the one that was deleted
+        for i in range(index, len(self)):
+            self[i].index = i
+
+    def remove(self, __value):
+        super().remove(__value)
+
+        # Make sure indices are consecutive
+        for i in range(len(self)):
+            self[i].index = i
+
     def move_entry(self, index: int, move_up: bool) -> None:
         """
         Move an entry specified by its index either up or down.
@@ -194,12 +208,12 @@ class Schedule(list[ScheduleEntry], TracksChanges):
             return f"**{header}**\n{body}"
 
         text = ''
-        for i, entry in enumerate(self):
+        for entry in self:
             line, _ = entry.days.str_header()
             if len(text) + len(line) + 2 <= max_len:
                 text += '\n- ' + line
             else:
-                omitted = len(self) - i - 1
+                omitted = len(self) - entry.index - 1
                 footer = f"*(plus {omitted} more)*"
                 while len(text) + len(footer) > max_len:
                     omitted += 1

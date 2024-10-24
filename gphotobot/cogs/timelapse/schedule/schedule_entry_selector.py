@@ -54,8 +54,10 @@ class ScheduleEntrySelector(utils.BaseView):
         # Add the selection menu
         self.menu = self.create_select_menu(
             placeholder='Select a schedule entry...',
-            options=list(f"{i + 1}. {entry.get_embed_field_strings()[0]}"
-                         for i, entry in enumerate(schedule)),
+            options=list(
+                f"{entry.index + 1}. {entry.get_embed_field_strings()[0]}"
+                for entry in schedule
+            ),
             callback=self.on_select
         )
 
@@ -112,10 +114,10 @@ class ScheduleEntrySelector(utils.BaseView):
         )
 
         # Add a field for each schedule entry
-        for index, entry in enumerate(self.schedule):
+        for entry in self.schedule:
             header, body = entry.get_embed_field_strings()
             embed.add_field(
-                name=f'{index + 1}. {header}',
+                name=f'{entry.index + 1}. {header}',
                 value=body,
                 inline=False
             )
@@ -195,8 +197,10 @@ class ScheduleEntrySelector(utils.BaseView):
 
         # Rebuild the selection menu to show the proper indices
         self.menu.options = [
-            SelectOption(label=f"{i + 1}. {e.get_embed_field_strings()[0]}")
-            for i, e in enumerate(self.schedule)
+            SelectOption(
+                label=f"{e.index + 1}. {e.get_embed_field_strings()[0]}"
+            )
+            for e in self.schedule
         ]
         self.menu.options[self.index].default = True
 
