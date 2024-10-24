@@ -130,6 +130,9 @@ class Coordinator(utils.TaskLoop,
         # Add an event to run right now that'll update the executor settings
         await self.push_initial_event(executor)
 
+        # Successfully updated the executor
+        return True
+
     async def create_executor(
             self,
             timelapse: Timelapse) -> tuple[TimelapseExecutor, bool]:

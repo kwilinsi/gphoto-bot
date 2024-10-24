@@ -343,7 +343,7 @@ class TimelapseExecutor(utils.TaskLoop):
 
             # If this event exists and is before the end time, use it
             if event is not None and \
-                    (end is not None and event.timestamp < end):
+                    (end is None or event.timestamp < end):
                 return event
 
         #################### NO SCHEDULE EVENTS ####################
