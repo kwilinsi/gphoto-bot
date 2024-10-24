@@ -4,7 +4,6 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from datetime import datetime
 import logging
-from typing import Literal, Union, Any
 
 from gphotobot import utils
 from gphotobot.sql import async_session_maker, State, Timelapse
@@ -45,9 +44,11 @@ class TimelapseExecutor(utils.TaskLoop):
         self.timelapse: Timelapse = timelapse
         self.schedule: Schedule = Schedule.from_db(timelapse.schedule_entries)
 
-        # These listeners are executed whenever the timelapse state changes
-        self._state_listener_lock: asyncio.Lock = asyncio.Lock()
-        self.state_listeners: list[Callable[[State], Awaitable[None]]] = []
+        # These listeners are executed whenever an event is applied that updates
+        # the timelapse
+        self._listener_lock: asyncio.Lock = asyncio.Lock()
+        self.event_listeners: list[Callable[[ExecutorEvent],
+        Awaitable[None]]] = []
 
         _log.info(f"Initialized a new executor instance: {self}")
 
@@ -86,7 +87,7 @@ class TimelapseExecutor(utils.TaskLoop):
         super().stop()
         _log.info(f"Stopping executor task loop {self}")
 
-    def start(self, *args: Any, **kwargs: Any) -> asyncio.Task[None]:
+    def start(self, *args: any, **kwargs: any) -> asyncio.Task[None]:
         _log.debug(f'Starting the task loop for executor {self}')
         self.cancelling = False
         return super().start(*args, **kwargs)
@@ -363,10 +364,11 @@ class TimelapseExecutor(utils.TaskLoop):
 
     async def apply_event(self, event: ExecutorEvent):
         """
-        Apply the given event to this timelapse executor.
+        Apply the given event to this timelapse executor, and call any listeners
+        waiting for events.
 
         Args:
-            event: The event to apply.
+            event: The executor event to apply.
         """
 
         _log.debug(f"Applying executor event {event} to executor {self}")
@@ -376,9 +378,9 @@ class TimelapseExecutor(utils.TaskLoop):
             # it from the coordinator. Then save any last changes to the db.
             self.timelapse.state = State.FINISHED
             await self.stop_callback(self)
-            await self._run_state_listeners(State.FINISHED)
             await self.update_db()
             _log.info(f"Timelapse '{self.name}' (id {self.id}) just finished")
+            await self._run_listeners(event)
             return
 
         # If the state changed, update the SQL db
@@ -387,11 +389,11 @@ class TimelapseExecutor(utils.TaskLoop):
             _log.info(f"Timelapse '{self.name}' (id {self.id}) "
                       f"is now {event.state.name}")
             await self.update_db()
-            await self._run_state_listeners(event.state)
 
         if event.state in (State.READY, State.PAUSED):
             # Cancel to stop taking pictures, but don't delete this executor
             self.cancel()
+            await self._run_listeners(event)
             return
 
         # Update the interval, if it was modified
@@ -414,6 +416,8 @@ class TimelapseExecutor(utils.TaskLoop):
             if self.is_running():
                 self.cancel()
 
+        await self._run_listeners(event)
+
     async def update_db(self) -> None:
         """
         Update the timelapse associated with this executor in the database.
@@ -429,46 +433,47 @@ class TimelapseExecutor(utils.TaskLoop):
             session.add(obj)
 
     async def register_listener(
-            self, listener: Callable[[State], Awaitable[None]]) -> None:
+            self, listener: Callable[[ExecutorEvent], Awaitable[None]]) -> None:
         """
-        Register a listener function that will run whenever the executor changes
-        the timelapse state.
+        Register a listener function that's called whenever the executor applies
+        an event.
 
         Args:
             listener: The async listener function to register.
         """
 
-        async with self._state_listener_lock:
-            self.state_listeners.append(listener)
+        async with self._listener_lock:
+            self.event_listeners.append(listener)
             _log.debug('Registered state change listener '
-                       f'#{len(self.state_listeners)} on {self}')
+                       f'#{len(self.event_listeners)} on {self}')
 
-    async def _run_state_listeners(self, state: State) -> None:
+    async def _run_listeners(self, event: ExecutorEvent) -> None:
         """
-        The executor/timelapse state changed. Call this to notify all the
-        registered listeners.
+        Call all the registered event listeners with a new event that is being
+        applied to this executor.
 
         Args:
-            state: The new state.
+            event: The new executor event to send to the listeners.
         """
 
-        async with self._state_listener_lock:
-            for listener in self.state_listeners:
-                await listener(state)
+        # Call the registered event listeners
+        async with self._listener_lock:
+            for listener in self.event_listeners:
+                await listener(event)
 
     async def remove_listener(
-            self, listener: Callable[[State], Awaitable[None]]) -> None:
+            self, listener: Callable[[ExecutorEvent], Awaitable[None]]) -> None:
         """
         Remove the specified listener function from the list of registered
-        listeners that run when the executor state changes.
+        event listeners.
 
         Args:
             listener: The async listener to remove.
         """
 
-        async with self._state_listener_lock:
-            for i in range(len(self.state_listeners) - 1, -1, -1):
-                if self.state_listeners[i] == listener:
-                    del self.state_listeners[i]
+        async with self._listener_lock:
+            for i in range(len(self.event_listeners) - 1, -1, -1):
+                if self.event_listeners[i] == listener:
+                    del self.event_listeners[i]
                     _log.debug(f'Removed state change listener #{i + 1} '
                                f'from {self}')

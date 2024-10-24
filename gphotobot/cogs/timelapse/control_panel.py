@@ -13,6 +13,7 @@ from gphotobot.libgphoto import GCamera, gutils
 from gphotobot.sql import async_session_maker, State, Timelapse
 from . import timelapse_utils
 from .execute import Coordinator, TimelapseExecutor
+from .execute.executor_event import ExecutorEvent
 from .schedule.schedule import Schedule
 from .timelapse_creator import TimelapseCreator
 
@@ -63,7 +64,7 @@ class TimelapseControlPanel(utils.BaseView):
             TIMELAPSE_COORDINATOR.get_executor(timelapse.id)
         if self.executor is not None:
             self._t2 = asyncio.create_task(
-                self.executor.register_listener(self.on_executor_state_change)
+                self.executor.register_listener(self.on_executor_event)
             )
 
         # Get the timelapse owner and the schedule from the db record
@@ -240,8 +241,10 @@ class TimelapseControlPanel(utils.BaseView):
 
         # Determine the current capture interval and the timelapse default
         def_interval: float = self.timelapse.capture_interval
-        cur_interval = def_interval if self.executor is None else \
-            self.executor.seconds
+        cur_interval = (
+            def_interval if self.executor is None or self.state == State.WAITING
+            else self.executor.seconds
+        )
 
         # Get a string with the capture interval
         if def_interval == cur_interval:
@@ -698,7 +701,7 @@ class TimelapseControlPanel(utils.BaseView):
 
         # Remove listeners
         if self.executor is not None:
-            await self.executor.remove_listener(self.on_executor_state_change)
+            await self.executor.remove_listener(self.on_executor_event)
             await self.coordinator.remove_listener(  # noqa
                 self.on_executor_add_remove,
                 self.id
@@ -766,16 +769,19 @@ class TimelapseControlPanel(utils.BaseView):
             # Add to session; it'll commit while exiting the context manager
             await session.merge(self.timelapse)
 
-    async def on_executor_state_change(self, state: State) -> None:
+    async def on_executor_event(self, event: ExecutorEvent) -> None:
         """
         This listener is attached to the executor and is triggered whenever it
-        updates the timelapse state.
+        applies a new event.
 
         Args:
-            state: The new state.
+            event: The executor event.
         """
 
-        self.state = state
+        # Update info from event
+        self.state = event.state
+
+        # Refresh the display with updated buttons
         self.update_start_pause_buttons()
         await self.refresh_display()
 
@@ -827,7 +833,7 @@ class TimelapseControlPanel(utils.BaseView):
                     '{self.executor} with {executor}'
                 )
                 await self.executor.remove_listener(  # noqa
-                    self.on_executor_state_change
+                    self.on_executor_event
                 )
 
             # Save the new executor
@@ -835,7 +841,7 @@ class TimelapseControlPanel(utils.BaseView):
 
             # Register a listener on this new executor
             await self.executor.register_listener(  # noqa
-                self.on_executor_state_change
+                self.on_executor_event
             )
 
         # The executor was removed. Set it back to None, as it's no longer used
